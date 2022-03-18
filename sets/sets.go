@@ -18,13 +18,13 @@ func (s Set[T]) Add(elem T) {
     s[elem] = struct{}{}
 }
 
-// Contains returns true iff this set contains the provided element.
+// Contains returns true if and only if this set contains the provided element.
 func (s Set[T]) Contains(elem T) bool {
     _, ok := s[elem]
     return ok
 }
 
-// ContainsSet returns true iff this set contains the other set.
+// ContainsSet returns true if and only if this set contains the other set.
 func (s Set[T]) ContainsSet(other Set[T]) bool {
     for b := range other {
         if !s.Contains(b) {
@@ -34,7 +34,7 @@ func (s Set[T]) ContainsSet(other Set[T]) bool {
     return true
 }
 
-// Equals returns true iff this set is equal to other.
+// Equals returns true if and only if this set is equal to other.
 func (s Set[T]) Equals(other Set[T]) bool {
     return s.ContainsSet(other) && len(s) == len(other)
 }
