@@ -10,25 +10,25 @@ import (
 func Chan[T any](ctx context.Context, in []T) chan T {
     result := make(chan T)
     go func() {
+        defer close(result)
         SendAll(ctx, in, result)
-        close(result)
     }()
     return result
 }
 
-// MultiSink converts a channel of []T to a channel of T.
-func MultiSink[T any](ctx context.Context, in <-chan []T) <-chan T {
+// Flatten converts a channel of []T to a channel of T.
+func Flatten[T any](ctx context.Context, in <-chan []T) <-chan T {
     result := make(chan T)
     go func() {
-        for ss := range in {
+        defer close(result)
+        for t := range in {
             select {
             case <-ctx.Done():
                 return
             default:
-                SendAll(ctx, ss, result)
+                SendAll(ctx, t, result)
             }
         }
-        close(result)
     }()
     return result
 }
@@ -40,6 +40,7 @@ func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T) <-chan T {
     tChan := make(chan T)
 
     go func() {
+        defer close(tChan)
         for s := range in {
             select {
             case <-ctx.Done():
@@ -47,7 +48,6 @@ func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T) <-chan T {
             case tChan <- f(s):
             }
         }
-        close(tChan)
     }()
     return tChan
 }
@@ -59,6 +59,7 @@ func MapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, 
     tChan := make(chan T)
 
     go func() {
+        defer close(tChan)
         for s := range in {
             select {
             case <-ctx.Done():
@@ -66,7 +67,6 @@ func MapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, 
             case tChan <- f(ctx, s):
             }
         }
-        close(tChan)
     }()
     return tChan
 }
@@ -77,15 +77,15 @@ func FlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T) <-chan T
     tChan := make(chan T)
 
     go func() {
-        for ss := range in {
+        defer close(tChan)
+        for s := range in {
             select {
             case <-ctx.Done():
                 return
             default:
-                SendAll(ctx, f(ss), tChan)
+                SendAll(ctx, f(s), tChan)
             }
         }
-        close(tChan)
     }()
     return tChan
 }
@@ -96,50 +96,48 @@ func FlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
     tChan := make(chan T)
 
     go func() {
-        for ss := range in {
+        defer close(tChan)
+        for s := range in {
             select {
             case <-ctx.Done():
                 return
             default:
-                SendAll(ctx, f(ctx, ss), tChan)
+                SendAll(ctx, f(ctx, s), tChan)
             }
-
         }
-        close(tChan)
     }()
     return tChan
 }
 
 // Combine combines the values from two channels into a third, which is returned. The returned channel is closed once
 // either of the input channels are closed, or the provided context is cancelled.
-func Combine[T any](ctx context.Context, s1 <-chan T, s2 <-chan T) chan T {
+func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T) chan T {
     out := make(chan T)
     var wg sync.WaitGroup
     wg.Add(2)
     go func() {
         defer wg.Done()
-        for u := range s1 {
+        for t := range t1 {
             select {
             case <-ctx.Done():
                 return
-            case out <- u:
+            case out <- t:
             }
-
         }
     }()
     go func() {
         defer wg.Done()
-        for u := range s2 {
+        for t := range t2 {
             select {
             case <-ctx.Done():
                 return
-            case out <- u:
+            case out <- t:
             }
         }
     }()
     go func() {
+        defer close(out)
         wg.Wait()
-        close(out)
     }()
     return out
 }
@@ -149,20 +147,20 @@ func Combine[T any](ctx context.Context, s1 <-chan T, s2 <-chan T) chan T {
 func WithCancel[T any](ctx context.Context, ch <-chan T) <-chan T {
     result := make(chan T)
     go func() {
-        for u := range ch {
+        defer close(result)
+        for t := range ch {
             select {
             case <-ctx.Done():
                 return
-            case result <- u:
+            case result <- t:
             }
         }
-        close(result)
     }()
     return result
 }
 
-// SendAll sends all values in ts to the provided channel while handling context closure. It blocks until the channel
-// is closed, or the provided context is cancelled.
+// SendAll blocks the current thread and sends all values in ts to the provided channel while handling context
+// cancellation. It blocks until the channel is closed or the provided context is cancelled.
 func SendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
     for _, t := range ts {
         select {
@@ -179,6 +177,7 @@ func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
     tChan := make(chan T)
     var wg sync.WaitGroup
     go func() {
+        defer close(tChan)
         for s := range in {
             select {
             case <-ctx.Done():
@@ -192,7 +191,6 @@ func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
             }
         }
         wg.Wait()
-        close(tChan)
     }()
     return tChan
 }
