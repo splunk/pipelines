@@ -77,7 +77,6 @@ func MapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, 
 
 	go func() {
 		defer close(tChan)
-
 		for {
 			select {
 			case <-ctx.Done():
