@@ -116,34 +116,32 @@ func FlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
 }
 
 // Combine combines the values from two channels into a third, which is returned. The returned channel is closed once
-// either of the input channels are closed, or the provided context is cancelled.
+// both of the input channels have been closed, or the provided context is cancelled.
 func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T) <-chan T {
 	out := make(chan T)
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		for t := range t1 {
-			select {
-			case <-ctx.Done():
-				return
-			case out <- t:
-			}
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for t := range t2 {
-			select {
-			case <-ctx.Done():
-				return
-			case out <- t:
-			}
-		}
-	}()
 	go func() {
 		defer close(out)
-		wg.Wait()
+		count := 0
+		for count < 2 {
+			select {
+			case v, ok := <-t1:
+				if !ok {
+					t1 = nil
+					count++
+					continue
+				}
+				out <- v
+			case v, ok := <-t2:
+				if !ok {
+					t2 = nil
+					count++
+					continue
+				}
+				out <- v
+			case <-ctx.Done():
+				return
+			}
+		}
 	}()
 	return out
 }
