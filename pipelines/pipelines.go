@@ -215,16 +215,18 @@ func SendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
 func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S, chan<- T)) <-chan T {
 	tChan := make(chan T)
 	go func() {
-		var wg sync.WaitGroup
 		defer close(tChan)
-	loop:
+
+		var wg sync.WaitGroup
+		defer wg.Wait()
+
 		for {
 			select {
 			case <-ctx.Done():
-				break loop
+				return
 			case s, ok := <-in:
 				if !ok {
-					break loop
+					return
 				}
 				wg.Add(1)
 				go func(s S) {
@@ -233,8 +235,6 @@ func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
 				}(s)
 			}
 		}
-
-		wg.Wait()
 	}()
 	return tChan
 }
