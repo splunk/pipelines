@@ -5,14 +5,14 @@ import (
     "sync"
 )
 
-// Chan converts a slice of type T to a channel which receives the provided values. The result channel is closed if the
-// provided Context is cancelled or all values have been sent.
-func Chan[T any](ctx context.Context, in []T) chan T {
-    result := make(chan T)
-    go func() {
-        defer close(result)
-        SendAll(ctx, in, result)
-    }()
+// Chan converts a slice of type T to a buffered channel which contains the values from in. The resulting channel is
+// closed after its contents are drained.
+func Chan[T any](in []T) <-chan T {
+    result := make(chan T, len(in))
+    defer close(result) // non-empty buffered channels can be drained even when closed.
+    for _, t := range in {
+        result <- t
+    }
     return result
 }
 
@@ -173,6 +173,8 @@ func SendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
 
 // ForkMapCtx starts a pipeline stage which, for each value of T received from in, forks an invocation of f onto a
 // new goroutine. Any values sent to the channel provided to f are serialized and made available in the output channel.
+// To avoid leaking a goroutine, any function passed must respect context cancellation while sending values to the
+// output channel.
 func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S, chan<- T)) <-chan T {
     tChan := make(chan T)
     var wg sync.WaitGroup

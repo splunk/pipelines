@@ -20,7 +20,7 @@ func TestFlatMapCtx(t *testing.T) {
 	}
 	t.Run("maps and serializes output", func(t *testing.T) {
 		is := is.New(t)
-		in := pipelines.Chan(ctx, []int{1, 2, 3})
+		in := pipelines.Chan([]int{1, 2, 3})
 		ch := pipelines.FlatMapCtx(ctx, in, double)
 
 		out := drain(t, ch)
@@ -44,7 +44,7 @@ func TestFlatMap(t *testing.T) {
 	}
 	t.Run("maps and serializes output", func(t *testing.T) {
 		is := is.New(t)
-		in := pipelines.Chan(ctx, []int{1, 2, 3, 4, 5})
+		in := pipelines.Chan([]int{1, 2, 3, 4, 5})
 		ch := pipelines.FlatMap(ctx, in, double)
 
 		out := drain(t, ch)
@@ -67,8 +67,8 @@ func TestCombine(t *testing.T) {
 
 	t.Run("combines values", func(t *testing.T) {
 		is := is.New(t)
-		ch1 := pipelines.Chan(ctx, []string{"1", "2", "3"})
-		ch2 := pipelines.Chan(ctx, []string{"4", "5", "6"})
+		ch1 := pipelines.Chan([]string{"1", "2", "3"})
+		ch2 := pipelines.Chan([]string{"4", "5", "6"})
 
 		ch := pipelines.Combine(ctx, ch1, ch2)
 		out := drain(t, ch)
@@ -107,7 +107,7 @@ func TestForkMapCtx(t *testing.T) {
 	t.Run("maps all values", func(t *testing.T) {
 		is := is.New(t)
 
-		in := pipelines.Chan(ctx, []int{0, 1, 2})
+		in := pipelines.Chan([]int{0, 1, 2})
 		ch := pipelines.ForkMapCtx(ctx, in, triplify)
 		out := drain(t, ch)
 		sort.Ints(out) // values may arrive out-of-order
@@ -131,7 +131,7 @@ func TestMapCtx(t *testing.T) {
 	}
 	t.Run("maps all values", func(t *testing.T) {
 		is := is.New(t)
-		in := pipelines.Chan(ctx, []string{"ab", "abcd", "abcdef", ""})
+		in := pipelines.Chan([]string{"ab", "abcd", "abcdef", ""})
 		ch := pipelines.MapCtx(ctx, in, lenCtx)
 
 		out := drain(t, ch)
@@ -154,7 +154,7 @@ func TestMap(t *testing.T) {
 	t.Run("maps all values", func(t *testing.T) {
 		is := is.New(t)
 
-		in := pipelines.Chan(ctx, []int{1, 2, 3, 4, 5})
+		in := pipelines.Chan([]int{1, 2, 3, 4, 5})
 		ch := pipelines.Map(ctx, in, strconv.Itoa)
 
 		out := drain(t, ch)
@@ -177,7 +177,7 @@ func TestFlatten(t *testing.T) {
 	t.Run("flattens all values", func(t *testing.T) {
 		is := is.New(t)
 
-		in := pipelines.Chan(ctx, [][]int{{1, 2, 3}, {4, 5, 6}, {}, {7}})
+		in := pipelines.Chan([][]int{{1, 2, 3}, {4, 5, 6}, {}, {7}})
 		ch := pipelines.Flatten(ctx, in)
 
 		output := drain(t, ch)
@@ -189,27 +189,25 @@ func TestFlatten(t *testing.T) {
 }
 
 func TestChan(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	t.Parallel()
 
 	t.Run("forwards all values", func(t *testing.T) {
 		is := is.New(t)
 
 		expected := []int{1, 2, 3, 4}
-		ch := pipelines.Chan(ctx, expected)
+		ch := pipelines.Chan(expected)
 		out := drain(t, ch)
 		is.Equal(expected, out)
 	})
 
 	t.Run("closes after drain", func(t *testing.T) {
-		ch := pipelines.Chan(ctx, []int{1, 2, 3, 4})
+		ch := pipelines.Chan([]int{1, 2, 3, 4})
 		testClosesAfterDrain(t, ch)
 	})
 
 	t.Run("closes on empty", func(t *testing.T) {
 		is := is.New(t)
-		ch := pipelines.Chan[int](ctx, nil)
+		ch := pipelines.Chan[int](nil)
 		out := drain(t, ch)
 		is.True(len(out) == 0)
 	})
@@ -274,7 +272,7 @@ func TestWithCancel(t *testing.T) {
 	t.Run("forwards all values", func(t *testing.T) {
 		is := is.New(t)
 
-		in := pipelines.Chan(ctx, []string{"1", "2", "3", "4", "5"})
+		in := pipelines.Chan([]string{"1", "2", "3", "4", "5"})
 		ch := pipelines.WithCancel(ctx, in)
 
 		result := drain(t, ch)
