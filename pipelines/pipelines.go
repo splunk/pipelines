@@ -27,11 +27,14 @@ func Flatten[T any](ctx context.Context, in <-chan []T) <-chan T {
 	result := make(chan T)
 	go func() {
 		defer close(result)
-		for t := range in {
+		for {
 			select {
 			case <-ctx.Done():
 				return
-			default:
+			case t, ok := <-in:
+				if !ok {
+					return
+				}
 				SendAll(ctx, t, result)
 			}
 		}
@@ -47,11 +50,19 @@ func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T) <-chan T {
 
 	go func() {
 		defer close(tChan)
-		for s := range in {
+		for {
 			select {
 			case <-ctx.Done():
 				return
-			case tChan <- f(s):
+			case s, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case tChan <- f(s):
+				}
 			}
 		}
 	}()
@@ -66,11 +77,20 @@ func MapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, 
 
 	go func() {
 		defer close(tChan)
-		for s := range in {
+
+		for {
 			select {
 			case <-ctx.Done():
 				return
-			case tChan <- f(ctx, s):
+			case s, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case tChan <- f(ctx, s):
+				}
 			}
 		}
 	}()
@@ -84,11 +104,14 @@ func FlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T) <-chan T
 
 	go func() {
 		defer close(tChan)
-		for s := range in {
+		for {
 			select {
 			case <-ctx.Done():
 				return
-			default:
+			case s, ok := <-in:
+				if !ok {
+					return
+				}
 				SendAll(ctx, f(s), tChan)
 			}
 		}
@@ -103,11 +126,14 @@ func FlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
 
 	go func() {
 		defer close(tChan)
-		for s := range in {
+		for {
 			select {
 			case <-ctx.Done():
 				return
-			default:
+			case s, ok := <-in:
+				if !ok {
+					return
+				}
 				SendAll(ctx, f(ctx, s), tChan)
 			}
 		}
@@ -121,25 +147,25 @@ func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T) <-chan T {
 	out := make(chan T)
 	go func() {
 		defer close(out)
-		count := 0
-		for count < 2 {
+		closedCount := 0
+		for closedCount < 2 {
 			select {
+			case <-ctx.Done():
+				return
 			case v, ok := <-t1:
 				if !ok {
 					t1 = nil
-					count++
+					closedCount++
 					continue
 				}
 				out <- v
 			case v, ok := <-t2:
 				if !ok {
 					t2 = nil
-					count++
+					closedCount++
 					continue
 				}
 				out <- v
-			case <-ctx.Done():
-				return
 			}
 		}
 	}()
@@ -152,11 +178,19 @@ func WithCancel[T any](ctx context.Context, ch <-chan T) <-chan T {
 	result := make(chan T)
 	go func() {
 		defer close(result)
-		for t := range ch {
+		for {
 			select {
 			case <-ctx.Done():
 				return
-			case result <- t:
+			case t, ok := <-ch:
+				if !ok {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case result <- t:
+				}
 			}
 		}
 	}()
@@ -181,14 +215,18 @@ func SendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
 // output channel.
 func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S, chan<- T)) <-chan T {
 	tChan := make(chan T)
-	var wg sync.WaitGroup
 	go func() {
+		var wg sync.WaitGroup
 		defer close(tChan)
-		for s := range in {
+	loop:
+		for {
 			select {
 			case <-ctx.Done():
-				return
-			default:
+				break loop
+			case s, ok := <-in:
+				if !ok {
+					break loop
+				}
 				wg.Add(1)
 				go func(s S) {
 					f(ctx, s, tChan)
@@ -196,6 +234,7 @@ func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
 				}(s)
 			}
 		}
+
 		wg.Wait()
 	}()
 	return tChan
