@@ -342,3 +342,19 @@ func drain[T any](t *testing.T, ch <-chan T) []T {
 		}
 	}
 }
+
+func Example() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	input := pipelines.Chan([]int{1, 3, 5})
+	doubled := pipelines.FlatMap(ctx, input, func(x int) []int { return []int{x, x + 1} })
+	expanded := pipelines.Map(ctx, doubled, func(x int) int { return x * 2 })
+	exclaimed := pipelines.Map(ctx, expanded, func(x int) string { return fmt.Sprintf("%d!", x) })
+
+	for out := range exclaimed {
+		fmt.Print(out, " ")
+	}
+
+	// Output: 2! 4! 6! 8! 10! 12!
+}

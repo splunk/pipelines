@@ -1,3 +1,9 @@
+// Package pipelines provides helper functions for constructing concurrent processing pipelines. Most helpers in this
+// package fork a new goroutine and return a receive-only channel representing their output. Each pipeline stages
+// responds to context cancellation and closure of the input channel by closing the output channel and stopping the
+// forked goroutine.
+//
+// Channels returned by helpers in this package are unbuffered.
 package pipelines
 
 import (
@@ -16,7 +22,7 @@ func Chan[T any](in []T) <-chan T {
 	return result
 }
 
-// Flatten converts a channel of []T to a channel of T.
+// Flatten provides a pipeline stage which converts a channel of []T to a channel of T.
 func Flatten[T any](ctx context.Context, in <-chan []T) <-chan T {
 	result := make(chan T)
 	go func() {
@@ -111,7 +117,7 @@ func FlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
 
 // Combine combines the values from two channels into a third, which is returned. The returned channel is closed once
 // either of the input channels are closed, or the provided context is cancelled.
-func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T) chan T {
+func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T) <-chan T {
 	out := make(chan T)
 	var wg sync.WaitGroup
 	wg.Add(2)
