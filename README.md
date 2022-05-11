@@ -1,2 +1,2 @@
 # go-genlib
-Helpful data structures using Go generics.
+Helpful data structures and code using Go generics.
