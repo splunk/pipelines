@@ -230,8 +230,8 @@ func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
 				}
 				wg.Add(1)
 				go func(s S) {
+					defer wg.Done()
 					f(ctx, s, tChan)
-					wg.Done()
 				}(s)
 			}
 		}
