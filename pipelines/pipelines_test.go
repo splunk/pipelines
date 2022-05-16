@@ -3,12 +3,13 @@ package pipelines_test
 import (
 	"context"
 	"fmt"
-	"github.com/matryer/is"
-	"github.com/splunk/go-genlib/pipelines"
 	"sort"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/matryer/is"
+	"github.com/splunk/go-genlib/pipelines"
 )
 
 // DefaultOpts provides a battery of tests in basic combinations.
@@ -429,9 +430,11 @@ func Example() {
 	expanded := pipelines.Map(ctx, doubled, func(x int) int { return x * 2 })                      // x => x*2
 	exclaimed := pipelines.Map(ctx, expanded, func(x int) string { return fmt.Sprintf("%d!", x) }) // x => "${x}!"
 
-	for out := range exclaimed {
-		fmt.Print(out, " ")
-	}
+	result := pipelines.Reduce(ctx, exclaimed, func(prefix string, str string) string {
+		return prefix + " " + str
+	})
+
+	fmt.Print(result)
 
 	// Output: 2! 4! 6! 8! 10! 12!
 }

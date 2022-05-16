@@ -324,3 +324,19 @@ func doWithConf[T any](ctx context.Context, conf config[T], doIt func(context.Co
 	}
 	return out
 }
+
+// Reduce runs a reducer function on every input received from the in chan and returns the output
+func Reduce[S, T string](ctx context.Context, in <-chan S, f func(T, S) T) T {
+	var result T
+	for {
+		select {
+		case <-ctx.Done():
+			return result
+		case s, ok := <-in:
+			if !ok {
+				return result
+			}
+			result = f(result, s)
+		}
+	}
+}
