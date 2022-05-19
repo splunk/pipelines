@@ -27,46 +27,82 @@ func Flatten[T any](ctx context.Context, in <-chan []T) <-chan T {
 	result := make(chan T)
 	go func() {
 		defer close(result)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case t, ok := <-in:
-				if !ok {
-					return
-				}
-				SendAll(ctx, t, result)
-			}
-		}
+		doFlatten(ctx, in, result)
 	}()
 	return result
+}
+
+// FlattenPool provides a pipeline stage which converts a channel of []T to a channel of T. Starts n goroutines.
+func FlattenPool[T any](ctx context.Context, nWorkers int, in <-chan []T) <-chan T {
+	return doPooled(ctx, nWorkers, func(ctx context.Context, result chan<- T) {
+		doFlatten(ctx, in, result)
+	})
+}
+
+// waitClose is a helper for pooled pipeline stages. Calls done on the waitgroup. If the workerID is 0, the waitgroup
+// is waited on, and the channel is closed.
+func waitClose[T](workerID int, wg *sync.WaitGroup, closeMe chan T) {
+	wg.Done()
+	if workerID == 0 {
+		wg.Wait()
+		close(closeMe)
+	}
+}
+
+// doFlatten implements flatten with context cancellation.
+func doFlatten[T](ctx context.Context, in <-chan []T, result chan<- T) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case t, ok := <-in:
+			if !ok {
+				return
+			}
+			SendAll(ctx, t, result)
+		}
+	}
 }
 
 // Map provides a map pipeline stage, applying the provided function to every input received from the in channel and
 // sending it to the returned channel. The result channel is closed when the input channel is closed or the provided
 // context is cancelled.
 func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T) <-chan T {
-	tChan := make(chan T)
+	result := make(chan T)
 
 	go func() {
-		defer close(tChan)
-		for {
+		defer close(result)
+		doMap(ctx, in, f, result)
+	}()
+	return result
+}
+
+// MapPool provides a pooled map pipeline stage, starting n workers which each apply the provided function to every
+// input received from the in channel and sending it to the returned channel. The result channel is closed when the
+// input channel is closed or the provided context is cancelled.
+func MapPool[S, T any](ctx context.Context, nWorkers int, in <-chan S, f func(S) T) <-chan T {
+	return doPooled(ctx, nWorkers, func(ctx context.Context, result chan<- T) {
+		doMap(ctx, in, f, result)
+	})
+}
+
+// doMap implements map with cancellation.
+func doMap[S, T any](ctx context.Context, in <-chan S, f func(S) T, result chan<- T) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case s, ok := <-in:
+			if !ok {
+				return
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case s, ok := <-in:
-				if !ok {
-					return
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case tChan <- f(s):
-				}
+			case result <- f(s):
 			}
 		}
-	}()
-	return tChan
+	}
 }
 
 // MapCtx provides a map pipeline stage, applying the provided function to every input received from the in channel,
@@ -254,4 +290,18 @@ func Drain[T any](ctx context.Context, in <-chan T) []T {
 			result = append(result, repo)
 		}
 	}
+}
+
+// doPooled runs the implementation provided via doIt in a workerpool of size n. doIt must respect context cancellation.
+func doPooled[T](ctx context.Context, nWorkers int, doIt func(context.Context, chan<- T)) <-chan T {
+	result := make(chan T)
+	var wg sync.WaitGroup
+	for i := 0; i < nWorkers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer waitClose(id, &wg, result)
+			doIt(ctx, result)
+		}(i)
+	}
+	return result
 }

@@ -169,6 +169,33 @@ func TestMap(t *testing.T) {
 	})
 }
 
+func TestMapPool(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Parallel()
+
+	t.Run("maps all values", func(t *testing.T) {
+		for _, nWorkers := range []int{1, 3, 5} {
+			t.Run(fmt.Sprintf("%d workers", nWorkers), func(t *testing.T) {
+				is := is.New(t)
+
+				in := pipelines.Chan([]int{1, 2, 3, 4, 5})
+				ch := pipelines.MapPool(ctx, nWorkers, in, strconv.Itoa)
+
+				out := drain(t, ch)
+				is.Equal([]string{"1", "2", "3", "4", "5"}, out)
+			})
+		}
+	})
+
+	testClosesOnContextDone(t, func(ctx context.Context, in <-chan int) <-chan string {
+		return pipelines.Map(ctx, in, strconv.Itoa)
+	})
+	testClosesOnClose(t, func(ctx context.Context, in <-chan int) <-chan string {
+		return pipelines.Map(ctx, in, strconv.Itoa)
+	})
+}
+
 func TestFlatten(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
