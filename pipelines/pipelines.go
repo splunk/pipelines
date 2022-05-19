@@ -40,16 +40,6 @@ func FlattenPool[T any](ctx context.Context, nWorkers int, in <-chan []T) <-chan
 	})
 }
 
-// waitClose is a helper for pooled pipeline stages. Calls done on the waitgroup. If the workerID is 0, the waitgroup
-// is waited on, and the channel is closed.
-func waitClose[T any](workerID int, wg *sync.WaitGroup, closeMe chan T) {
-	wg.Done()
-	if workerID == 0 {
-		wg.Wait()
-		close(closeMe)
-	}
-}
-
 // doFlatten implements flatten with context cancellation.
 func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
 	for {
@@ -290,6 +280,16 @@ func Drain[T any](ctx context.Context, in <-chan T) []T {
 			}
 			result = append(result, repo)
 		}
+	}
+}
+
+// waitClose is a helper for pooled pipeline stages. Calls done on the waitgroup. If the workerID is 0, the waitgroup
+// is waited on, and the channel is closed.
+func waitClose[T any](workerID int, wg *sync.WaitGroup, closeMe chan T) {
+	wg.Done()
+	if workerID == 0 {
+		wg.Wait()
+		close(closeMe)
 	}
 }
 
