@@ -32,7 +32,8 @@ func Flatten[T any](ctx context.Context, in <-chan []T) <-chan T {
 	return result
 }
 
-// FlattenPool provides a pipeline stage which converts a channel of []T to a channel of T. Starts n goroutines.
+// FlattenPool provides a pipeline stage which converts a channel of []T to a channel of T. Starts n goroutines. The
+// order values are received in the output channel may differ from the order they appear in the input channel.
 func FlattenPool[T any](ctx context.Context, nWorkers int, in <-chan []T) <-chan T {
 	return doPooled(ctx, nWorkers, func(ctx context.Context, result chan<- T) {
 		doFlatten(ctx, in, result)
@@ -41,7 +42,7 @@ func FlattenPool[T any](ctx context.Context, nWorkers int, in <-chan []T) <-chan
 
 // waitClose is a helper for pooled pipeline stages. Calls done on the waitgroup. If the workerID is 0, the waitgroup
 // is waited on, and the channel is closed.
-func waitClose[T](workerID int, wg *sync.WaitGroup, closeMe chan T) {
+func waitClose[T any](workerID int, wg *sync.WaitGroup, closeMe chan T) {
 	wg.Done()
 	if workerID == 0 {
 		wg.Wait()
@@ -50,7 +51,7 @@ func waitClose[T](workerID int, wg *sync.WaitGroup, closeMe chan T) {
 }
 
 // doFlatten implements flatten with context cancellation.
-func doFlatten[T](ctx context.Context, in <-chan []T, result chan<- T) {
+func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -293,7 +294,7 @@ func Drain[T any](ctx context.Context, in <-chan T) []T {
 }
 
 // doPooled runs the implementation provided via doIt in a workerpool of size n. doIt must respect context cancellation.
-func doPooled[T](ctx context.Context, nWorkers int, doIt func(context.Context, chan<- T)) <-chan T {
+func doPooled[T any](ctx context.Context, nWorkers int, doIt func(context.Context, chan<- T)) <-chan T {
 	result := make(chan T)
 	var wg sync.WaitGroup
 	for i := 0; i < nWorkers; i++ {
