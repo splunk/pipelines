@@ -314,7 +314,7 @@ func TestDrain(t *testing.T) {
 		in := make(chan complex64)
 		ctx, cancel := context.WithCancel(ctx)
 		cancel()
-		
+
 		result := pipelines.Drain(ctx, in)
 		is.Equal(len(result), 0)
 	})
