@@ -295,7 +295,8 @@ func TestDrain(t *testing.T) {
 
 		in := pipelines.Chan([]int{1, 2, 34, 5, 6, 7, 8, 9})
 
-		result := pipelines.Drain(ctx, in)
+		result, err := pipelines.Drain(ctx, in)
+		is.Equal(err, nil)
 		is.Equal(result, []int{1, 2, 34, 5, 6, 7, 8, 9})
 	})
 	t.Run("halts on closed input channel", func(t *testing.T) {
@@ -304,7 +305,8 @@ func TestDrain(t *testing.T) {
 		in := make(chan string)
 		close(in)
 
-		result := pipelines.Drain(ctx, in)
+		result, err := pipelines.Drain(ctx, in)
+		is.Equal(err, nil)
 		is.Equal(len(result), 0)
 	})
 
@@ -315,7 +317,8 @@ func TestDrain(t *testing.T) {
 		ctx, cancel := context.WithCancel(ctx)
 		cancel()
 
-		result := pipelines.Drain(ctx, in)
+		result, err := pipelines.Drain(ctx, in)
+		is.Equal(err.Error(), "context canceled")
 		is.Equal(len(result), 0)
 	})
 }
