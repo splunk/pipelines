@@ -286,6 +286,40 @@ func TestWithCancel(t *testing.T) {
 	})
 }
 
+func TestDrain(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Parallel()
+	t.Run("receives all values", func(t *testing.T) {
+		is := is.New(t)
+
+		in := pipelines.Chan([]int{1, 2, 34, 5, 6, 7, 8, 9})
+
+		result := pipelines.Drain(ctx, in)
+		is.Equal(result, []int{1, 2, 34, 5, 6, 7, 8, 9})
+	})
+	t.Run("halts on closed input channel", func(t *testing.T) {
+		is := is.New(t)
+
+		in := make(chan string)
+		close(in)
+
+		result := pipelines.Drain(ctx, in)
+		is.Equal(len(result), 0)
+	})
+
+	t.Run("halts on done context", func(t *testing.T) {
+		is := is.New(t)
+
+		in := make(chan complex64)
+		ctx, cancel := context.WithCancel(ctx)
+		cancel()
+		
+		result := pipelines.Drain(ctx, in)
+		is.Equal(len(result), 0)
+	})
+}
+
 func testClosesOnClose[S, T any](t *testing.T, stage func(context.Context, <-chan S) <-chan T) {
 	t.Run("closes on closed input channel", func(t *testing.T) {
 		in := make(chan S)
@@ -345,9 +379,9 @@ func Example() {
 	defer cancel()
 
 	input := pipelines.Chan([]int{1, 3, 5})
-	doubled := pipelines.FlatMap(ctx, input, func(x int) []int { return []int{x, x + 1} })
-	expanded := pipelines.Map(ctx, doubled, func(x int) int { return x * 2 })
-	exclaimed := pipelines.Map(ctx, expanded, func(x int) string { return fmt.Sprintf("%d!", x) })
+	doubled := pipelines.FlatMap(ctx, input, func(x int) []int { return []int{x, x + 1} })         // (x) => [x, x+1]
+	expanded := pipelines.Map(ctx, doubled, func(x int) int { return x * 2 })                      // x => x*2
+	exclaimed := pipelines.Map(ctx, expanded, func(x int) string { return fmt.Sprintf("%d!", x) }) // x => "${x}!"
 
 	for out := range exclaimed {
 		fmt.Print(out, " ")
