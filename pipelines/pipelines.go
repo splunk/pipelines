@@ -240,16 +240,17 @@ func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Conte
 }
 
 // Drain blocks the current goroutine and receives all values from the provided channel until it has been closed. Each
-// value recieved is appended to a new slice, which is returned.
-func Drain[T any](ctx context.Context, in <-chan T) []T {
+// value recieved is appended to a new slice, which is returned. An error is returned along with a partial result if the
+// provided context is cancelled.
+func Drain[T any](ctx context.Context, in <-chan T) ([]T, error) {
 	var result []T
 	for {
 		select {
 		case <-ctx.Done():
-			return result
+			return result, ctx.Err()
 		case repo, ok := <-in:
 			if !ok {
-				return result
+				return result, nil
 			}
 			result = append(result, repo)
 		}
