@@ -146,7 +146,7 @@ func TestMapCtx(t *testing.T) {
 	})
 }
 
-func TestMapPool(t *testing.T) {
+func TestMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	t.Parallel()
@@ -160,6 +160,7 @@ func TestMapPool(t *testing.T) {
 				ch := pipelines.Map(ctx, in, strconv.Itoa, pipelines.WithPool[string](nWorkers))
 
 				out := drain(t, ch)
+				sort.Strings(out)
 				is.Equal([]string{"1", "2", "3", "4", "5"}, out)
 			})
 		}

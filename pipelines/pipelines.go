@@ -61,27 +61,6 @@ func Flatten[T any](ctx context.Context, in <-chan []T, opts ...OptionFunc[T]) <
 	})
 }
 
-// doPooled runs the implementation provided via doIt in a workerpool of size n. doIt must respect context cancellation.
-func doPooled[T any](ctx context.Context, conf Config[T], doIt func(context.Context, chan<- T)) <-chan T {
-	out := conf.Channer()
-	if conf.Workers == 1 {
-		go func() {
-			defer close(out)
-			doIt(ctx, out)
-		}()
-	} else {
-		var wg sync.WaitGroup
-		for i := 0; i < conf.Workers; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer waitClose(id, &wg, out)
-				doIt(ctx, out)
-			}(i)
-		}
-	}
-	return out
-}
-
 // doFlatten implements flatten with context cancellation.
 func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
 	for {
@@ -320,4 +299,25 @@ func waitClose[T any](workerID int, wg *sync.WaitGroup, closeMe chan T) {
 		wg.Wait()
 		close(closeMe)
 	}
+}
+
+// doPooled runs the implementation provided via doIt in a workerpool of size n. doIt must respect context cancellation.
+func doPooled[T any](ctx context.Context, conf Config[T], doIt func(context.Context, chan<- T)) <-chan T {
+	out := conf.Channer()
+	if conf.Workers == 1 {
+		go func() {
+			defer close(out)
+			doIt(ctx, out)
+		}()
+	} else {
+		var wg sync.WaitGroup
+		for i := 0; i < conf.Workers; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer waitClose(id, &wg, out)
+				doIt(ctx, out)
+			}(i)
+		}
+	}
+	return out
 }
