@@ -146,29 +146,6 @@ func TestMapCtx(t *testing.T) {
 	})
 }
 
-func TestMap(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	t.Parallel()
-
-	t.Run("maps all values", func(t *testing.T) {
-		is := is.New(t)
-
-		in := pipelines.Chan([]int{1, 2, 3, 4, 5})
-		ch := pipelines.Map(ctx, in, strconv.Itoa)
-
-		out := drain(t, ch)
-		is.Equal([]string{"1", "2", "3", "4", "5"}, out)
-	})
-
-	testClosesOnContextDone(t, func(ctx context.Context, in <-chan int) <-chan string {
-		return pipelines.Map(ctx, in, strconv.Itoa)
-	})
-	testClosesOnClose(t, func(ctx context.Context, in <-chan int) <-chan string {
-		return pipelines.Map(ctx, in, strconv.Itoa)
-	})
-}
-
 func TestMapPool(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -180,7 +157,7 @@ func TestMapPool(t *testing.T) {
 				is := is.New(t)
 
 				in := pipelines.Chan([]int{1, 2, 3, 4, 5})
-				ch := pipelines.MapPool(ctx, nWorkers, in, strconv.Itoa)
+				ch := pipelines.Map(ctx, in, strconv.Itoa, pipelines.WithPool[string](nWorkers))
 
 				out := drain(t, ch)
 				is.Equal([]string{"1", "2", "3", "4", "5"}, out)
@@ -189,10 +166,10 @@ func TestMapPool(t *testing.T) {
 	})
 
 	testClosesOnContextDone(t, func(ctx context.Context, in <-chan int) <-chan string {
-		return pipelines.MapPool(ctx, 3, in, strconv.Itoa)
+		return pipelines.Map(ctx, in, strconv.Itoa)
 	})
 	testClosesOnClose(t, func(ctx context.Context, in <-chan int) <-chan string {
-		return pipelines.MapPool(ctx, 3, in, strconv.Itoa)
+		return pipelines.Map(ctx, in, strconv.Itoa)
 	})
 }
 
@@ -211,11 +188,15 @@ func TestFlatten(t *testing.T) {
 		is.Equal([]int{1, 2, 3, 4, 5, 6, 7}, output)
 	})
 
-	testClosesOnContextDone(t, pipelines.Flatten[int])
-	testClosesOnClose(t, pipelines.Flatten[string])
+	testClosesOnContextDone(t, func(ctx context.Context, s <-chan []int) <-chan int {
+		return pipelines.Flatten[int](ctx, s)
+	})
+	testClosesOnClose(t, func(ctx context.Context, s <-chan []string) <-chan string {
+		return pipelines.Flatten[string](ctx, s)
+	})
 }
 
-func TestFlattenPool(t *testing.T) {
+func TestFlatten2(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	t.Parallel()
@@ -226,7 +207,7 @@ func TestFlattenPool(t *testing.T) {
 				is := is.New(t)
 
 				in := pipelines.Chan([][]int{{1, 2, 3}, {4, 5, 6}, {}, {7}})
-				ch := pipelines.FlattenPool(ctx, nWorkers, in)
+				ch := pipelines.Flatten(ctx, in, pipelines.WithPool[int](nWorkers))
 
 				output := drain(t, ch)
 				sort.Ints(output)
@@ -236,10 +217,10 @@ func TestFlattenPool(t *testing.T) {
 	})
 
 	testClosesOnContextDone(t, func(ctx context.Context, s <-chan []int) <-chan int {
-		return pipelines.FlattenPool[int](ctx, 3, s)
+		return pipelines.Flatten[int](ctx, s)
 	})
 	testClosesOnClose(t, func(ctx context.Context, s <-chan []int) <-chan int {
-		return pipelines.FlattenPool[int](ctx, 3, s)
+		return pipelines.Flatten[int](ctx, s)
 	})
 }
 

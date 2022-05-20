@@ -11,6 +11,38 @@ import (
 	"sync"
 )
 
+type Config[T any] struct {
+	Channer func() chan T
+	Workers int
+}
+
+type OptionFunc[T any] func(*Config[T])
+
+func WithBuffer[T any](size int) OptionFunc[T] {
+	return func(conf *Config[T]) {
+		conf.Channer = func() chan T {
+			return make(chan T, size)
+		}
+	}
+}
+
+func WithPool[T any](numWorkers int) OptionFunc[T] {
+	return func(conf *Config[T]) {
+		conf.Workers = numWorkers
+	}
+}
+
+func configure[T any](opts []OptionFunc[T]) Config[T] {
+	result := Config[T]{
+		Channer: func() chan T { return make(chan T) },
+		Workers: 1,
+	}
+	for _, opt := range opts {
+		opt(&result)
+	}
+	return result
+}
+
 // Chan converts a slice of type T to a buffered channel which contains the values from in. The resulting channel is
 // closed after its contents are drained.
 func Chan[T any](in []T) <-chan T {
@@ -23,21 +55,31 @@ func Chan[T any](in []T) <-chan T {
 }
 
 // Flatten provides a pipeline stage which converts a channel of []T to a channel of T.
-func Flatten[T any](ctx context.Context, in <-chan []T) <-chan T {
-	result := make(chan T)
-	go func() {
-		defer close(result)
-		doFlatten(ctx, in, result)
-	}()
-	return result
+func Flatten[T any](ctx context.Context, in <-chan []T, opts ...OptionFunc[T]) <-chan T {
+	return doPooled(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
+		doFlatten(ctx, in, out)
+	})
 }
 
-// FlattenPool provides a pipeline stage which converts a channel of []T to a channel of T. Starts n goroutines. The
-// order values are received in the output channel may differ from the order they appear in the input channel.
-func FlattenPool[T any](ctx context.Context, nWorkers int, in <-chan []T) <-chan T {
-	return doPooled(ctx, nWorkers, func(ctx context.Context, result chan<- T) {
-		doFlatten(ctx, in, result)
-	})
+// doPooled runs the implementation provided via doIt in a workerpool of size n. doIt must respect context cancellation.
+func doPooled[T any](ctx context.Context, conf Config[T], doIt func(context.Context, chan<- T)) <-chan T {
+	out := conf.Channer()
+	if conf.Workers == 1 {
+		go func() {
+			defer close(out)
+			doIt(ctx, out)
+		}()
+	} else {
+		var wg sync.WaitGroup
+		for i := 0; i < conf.Workers; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer waitClose(id, &wg, out)
+				doIt(ctx, out)
+			}(i)
+		}
+	}
+	return out
 }
 
 // doFlatten implements flatten with context cancellation.
@@ -58,22 +100,9 @@ func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
 // Map provides a map pipeline stage, applying the provided function to every input received from the in channel and
 // sending it to the returned channel. The result channel is closed when the input channel is closed or the provided
 // context is cancelled.
-func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T) <-chan T {
-	result := make(chan T)
-
-	go func() {
-		defer close(result)
-		doMap(ctx, in, f, result)
-	}()
-	return result
-}
-
-// MapPool provides a pooled map pipeline stage, starting n workers which each apply the provided function to every
-// input received from the in channel and sending it to the returned channel. The result channel is closed when the
-// input channel is closed or the provided context is cancelled.
-func MapPool[S, T any](ctx context.Context, nWorkers int, in <-chan S, f func(S) T) <-chan T {
-	return doPooled(ctx, nWorkers, func(ctx context.Context, result chan<- T) {
-		doMap(ctx, in, f, result)
+func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T, opts ...OptionFunc[T]) <-chan T {
+	return doPooled(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
+		doMap(ctx, in, f, out)
 	})
 }
 
@@ -291,18 +320,4 @@ func waitClose[T any](workerID int, wg *sync.WaitGroup, closeMe chan T) {
 		wg.Wait()
 		close(closeMe)
 	}
-}
-
-// doPooled runs the implementation provided via doIt in a workerpool of size n. doIt must respect context cancellation.
-func doPooled[T any](ctx context.Context, nWorkers int, doIt func(context.Context, chan<- T)) <-chan T {
-	result := make(chan T)
-	var wg sync.WaitGroup
-	for i := 0; i < nWorkers; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer waitClose(id, &wg, result)
-			doIt(ctx, result)
-		}(i)
-	}
-	return result
 }
