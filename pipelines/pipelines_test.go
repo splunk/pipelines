@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+// DefaultOpts provides a battery of tests in basic combinations.
+func Opts[T any]() optionMap[T] {
+	return optionMap[T]{
+		"default":     {},
+		"pooled 3":    {pipelines.WithPool[T](3)},
+		"buffered 10": {pipelines.WithBuffer[T](10)},
+	}
+}
+
 func TestFlatMapCtx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -19,12 +28,15 @@ func TestFlatMapCtx(t *testing.T) {
 		return []string{fmt.Sprintf("%d", x), fmt.Sprintf("%d!", x)}
 	}
 	t.Run("maps and serializes output", func(t *testing.T) {
-		is := is.New(t)
-		in := pipelines.Chan([]int{1, 2, 3})
-		ch := pipelines.FlatMapCtx(ctx, in, double)
+		withOptions[string](t, Opts[string](), func(t *testing.T, opts []pipelines.OptionFunc[string]) {
+			is := is.New(t)
+			in := pipelines.Chan([]int{1, 2, 3})
+			ch := pipelines.FlatMapCtx(ctx, in, double, opts...)
 
-		out := drain(t, ch)
-		is.Equal([]string{"1", "1!", "2", "2!", "3", "3!"}, out)
+			out := drain(t, ch)
+			sort.Strings(out)
+			is.Equal([]string{"1", "1!", "2", "2!", "3", "3!"}, out)
+		})
 	})
 
 	testClosesOnClose(t, func(ctx context.Context, s <-chan int) <-chan string {
@@ -43,12 +55,15 @@ func TestFlatMap(t *testing.T) {
 		return []int{x, x * 2}
 	}
 	t.Run("maps and serializes output", func(t *testing.T) {
-		is := is.New(t)
-		in := pipelines.Chan([]int{1, 2, 3, 4, 5})
-		ch := pipelines.FlatMap(ctx, in, double)
+		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+			is := is.New(t)
+			in := pipelines.Chan([]int{1, 2, 3, 4, 5})
+			ch := pipelines.FlatMap(ctx, in, double, opts...)
 
-		out := drain(t, ch)
-		is.Equal([]int{1, 2, 2, 4, 3, 6, 4, 8, 5, 10}, out)
+			out := drain(t, ch)
+			sort.Ints(out) //
+			is.Equal([]int{1, 2, 2, 3, 4, 4, 5, 6, 8, 10}, out)
+		})
 	})
 
 	testClosesOnClose(t, func(ctx context.Context, s <-chan int) <-chan int {
@@ -66,14 +81,16 @@ func TestCombine(t *testing.T) {
 	t.Parallel()
 
 	t.Run("combines values", func(t *testing.T) {
-		is := is.New(t)
-		ch1 := pipelines.Chan([]string{"1", "2", "3"})
-		ch2 := pipelines.Chan([]string{"4", "5", "6"})
+		withOptions[string](t, Opts[string](), func(t *testing.T, opts []pipelines.OptionFunc[string]) {
+			is := is.New(t)
+			ch1 := pipelines.Chan([]string{"1", "2", "3"})
+			ch2 := pipelines.Chan([]string{"4", "5", "6"})
 
-		ch := pipelines.Combine(ctx, ch1, ch2)
-		out := drain(t, ch)
-		sort.Strings(out) // values may arrive out-of-order
-		is.Equal([]string{"1", "2", "3", "4", "5", "6"}, out)
+			ch := pipelines.Combine(ctx, ch1, ch2, opts...)
+			out := drain(t, ch)
+			sort.Strings(out) // values may arrive out-of-order
+			is.Equal([]string{"1", "2", "3", "4", "5", "6"}, out)
+		})
 	})
 
 	closed := make(chan int)
@@ -105,13 +122,15 @@ func TestForkMapCtx(t *testing.T) {
 	}
 
 	t.Run("maps all values", func(t *testing.T) {
-		is := is.New(t)
+		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+			is := is.New(t)
 
-		in := pipelines.Chan([]int{0, 1, 2})
-		ch := pipelines.ForkMapCtx(ctx, in, triplify)
-		out := drain(t, ch)
-		sort.Ints(out) // values may arrive out-of-order
-		is.Equal([]int{0, 1, 2, 3, 4, 5, 6, 7, 8}, out)
+			in := pipelines.Chan([]int{0, 1, 2})
+			ch := pipelines.ForkMapCtx(ctx, in, triplify, opts...)
+			out := drain(t, ch)
+			sort.Ints(out) // values may arrive out-of-order
+			is.Equal([]int{0, 1, 2, 3, 4, 5, 6, 7, 8}, out)
+		})
 	})
 	testClosesOnClose(t, func(ctx context.Context, in <-chan int) <-chan int {
 		return pipelines.ForkMapCtx(ctx, in, triplify)
@@ -130,12 +149,14 @@ func TestMapCtx(t *testing.T) {
 		return len(s)
 	}
 	t.Run("maps all values", func(t *testing.T) {
-		is := is.New(t)
-		in := pipelines.Chan([]string{"ab", "abcd", "abcdef", ""})
-		ch := pipelines.MapCtx(ctx, in, lenCtx)
+		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+			is := is.New(t)
+			in := pipelines.Chan([]string{"ab", "abcd", "abcdef", ""})
+			ch := pipelines.MapCtx(ctx, in, lenCtx, opts...)
 
-		out := drain(t, ch)
-		is.Equal([]int{2, 4, 6, 0}, out)
+			out := drain(t, ch)
+			is.Equal([]int{2, 4, 6, 0}, out)
+		})
 	})
 
 	testClosesOnContextDone(t, func(ctx context.Context, in <-chan string) <-chan int {
@@ -152,18 +173,16 @@ func TestMap(t *testing.T) {
 	t.Parallel()
 
 	t.Run("maps all values", func(t *testing.T) {
-		for _, nWorkers := range []int{1, 3, 5} {
-			t.Run(fmt.Sprintf("%d workers", nWorkers), func(t *testing.T) {
-				is := is.New(t)
+		withOptions[string](t, Opts[string](), func(t *testing.T, opts []pipelines.OptionFunc[string]) {
+			is := is.New(t)
 
-				in := pipelines.Chan([]int{1, 2, 3, 4, 5})
-				ch := pipelines.Map(ctx, in, strconv.Itoa, pipelines.WithPool[string](nWorkers))
+			in := pipelines.Chan([]int{1, 2, 3, 4, 5})
+			ch := pipelines.Map(ctx, in, strconv.Itoa, opts...)
 
-				out := drain(t, ch)
-				sort.Strings(out)
-				is.Equal([]string{"1", "2", "3", "4", "5"}, out)
-			})
-		}
+			out := drain(t, ch)
+			sort.Strings(out)
+			is.Equal([]string{"1", "2", "3", "4", "5"}, out)
+		})
 	})
 
 	testClosesOnContextDone(t, func(ctx context.Context, in <-chan int) <-chan string {
@@ -180,41 +199,16 @@ func TestFlatten(t *testing.T) {
 	t.Parallel()
 
 	t.Run("flattens all values", func(t *testing.T) {
-		is := is.New(t)
+		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+			is := is.New(t)
 
-		in := pipelines.Chan([][]int{{1, 2, 3}, {4, 5, 6}, {}, {7}})
-		ch := pipelines.Flatten(ctx, in)
+			in := pipelines.Chan([][]int{{1, 2, 3}, {4, 5, 6}, {}, {7}})
+			ch := pipelines.Flatten(ctx, in, opts...)
 
-		output := drain(t, ch)
-		is.Equal([]int{1, 2, 3, 4, 5, 6, 7}, output)
-	})
-
-	testClosesOnContextDone(t, func(ctx context.Context, s <-chan []int) <-chan int {
-		return pipelines.Flatten[int](ctx, s)
-	})
-	testClosesOnClose(t, func(ctx context.Context, s <-chan []string) <-chan string {
-		return pipelines.Flatten[string](ctx, s)
-	})
-}
-
-func TestFlatten2(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	t.Parallel()
-
-	t.Run("flattens all values", func(t *testing.T) {
-		for _, nWorkers := range []int{1, 3, 5} {
-			t.Run(fmt.Sprintf("%d workers", nWorkers), func(t *testing.T) {
-				is := is.New(t)
-
-				in := pipelines.Chan([][]int{{1, 2, 3}, {4, 5, 6}, {}, {7}})
-				ch := pipelines.Flatten(ctx, in, pipelines.WithPool[int](nWorkers))
-
-				output := drain(t, ch)
-				sort.Ints(output)
-				is.Equal([]int{1, 2, 3, 4, 5, 6, 7}, output)
-			})
-		}
+			output := drain(t, ch)
+			sort.Ints(output)
+			is.Equal([]int{1, 2, 3, 4, 5, 6, 7}, output)
+		})
 	})
 
 	testClosesOnContextDone(t, func(ctx context.Context, s <-chan []int) <-chan int {
@@ -298,12 +292,14 @@ func TestWithCancel(t *testing.T) {
 
 	t.Parallel()
 	t.Run("result channel closes on context done", func(t *testing.T) {
-		in := make(chan int)
-		ctx, cancel := context.WithCancel(ctx)
-		cancel()
-		ch := pipelines.WithCancel(ctx, in)
+		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+			in := make(chan int)
+			ctx, cancel := context.WithCancel(ctx)
+			cancel()
+			ch := pipelines.WithCancel(ctx, in, opts...)
 
-		testClosesAfterDrain(t, ch)
+			testClosesAfterDrain(t, ch)
+		})
 	})
 	t.Run("forwards all values", func(t *testing.T) {
 		is := is.New(t)
@@ -408,6 +404,16 @@ func drain[T any](t *testing.T, ch <-chan T) []T {
 			}
 			result = append(result, t)
 		}
+	}
+}
+
+type optionMap[T any] map[string][]pipelines.OptionFunc[T]
+
+func withOptions[T any](t *testing.T, opts optionMap[T], f func(*testing.T, []pipelines.OptionFunc[T])) {
+	for name, options := range opts {
+		t.Run(name, func(t *testing.T) {
+			f(t, options)
+		})
 	}
 }
 
