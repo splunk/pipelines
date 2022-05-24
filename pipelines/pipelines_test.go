@@ -357,6 +357,37 @@ func TestDrain(t *testing.T) {
 	})
 }
 
+func TestReduce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Parallel()
+
+	reducer := func(a, b string) string {
+		return a + b
+	}
+
+	t.Run("returns reduced value", func(t *testing.T) {
+		is := is.New(t)
+
+		in := pipelines.Chan([]string{"l", "3", "3", "7"})
+		result := pipelines.Reduce(ctx, in, reducer)
+		is.Equal(result, "l337")
+
+		emptyIn := pipelines.Chan([]string{})
+		emptyResult := pipelines.Reduce(ctx, emptyIn, reducer)
+		is.Equal(emptyResult, "")
+	})
+
+	t.Run("returns empty string on done context", func(t *testing.T) {
+		cancel()
+		is := is.New(t)
+
+		in := pipelines.Chan([]string{"l", "3", "3", "7"})
+		result := pipelines.Reduce(ctx, in, reducer)
+		is.Equal(result, "")
+	})
+}
+
 func testClosesOnClose[S, T any](t *testing.T, stage func(context.Context, <-chan S) <-chan T) {
 	t.Run("closes on closed input channel", func(t *testing.T) {
 		in := make(chan S)
