@@ -16,8 +16,10 @@ type config[T any] struct {
 	Workers int
 }
 
+// OptionFunc provides options for configuring pipeline stages.
 type OptionFunc[T any] func(*config[T])
 
+// WithBuffer configures a pipeline to use a buffered input channel.
 func WithBuffer[T any](size int) OptionFunc[T] {
 	return func(conf *config[T]) {
 		conf.Channer = func() chan T {
@@ -26,6 +28,7 @@ func WithBuffer[T any](size int) OptionFunc[T] {
 	}
 }
 
+// WithPool configures a pipeline to run the provided stage on a worker pool of the given size.
 func WithPool[T any](numWorkers int) OptionFunc[T] {
 	return func(conf *config[T]) {
 		conf.Workers = numWorkers
