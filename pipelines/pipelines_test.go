@@ -379,6 +379,7 @@ func TestReduce(t *testing.T) {
 	})
 
 	t.Run("returns empty string on done context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		is := is.New(t)
 
