@@ -387,6 +387,16 @@ func TestReduce(t *testing.T) {
 		result := pipelines.Reduce(ctx, in, reducer)
 		is.Equal(result, "")
 	})
+
+	t.Run("returns empty string on closed channel", func(t *testing.T) {
+		is := is.New(t)
+
+		in := make(chan string)
+		close(in)
+
+		result := pipelines.Reduce(ctx, in, reducer)
+		is.Equal(result, "")
+	})
 }
 
 func testClosesOnClose[S, T any](t *testing.T, stage func(context.Context, <-chan S) <-chan T) {
