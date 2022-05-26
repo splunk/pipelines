@@ -3,12 +3,13 @@ package pipelines_test
 import (
 	"context"
 	"fmt"
-	"github.com/matryer/is"
-	"github.com/splunk/go-genlib/pipelines"
 	"sort"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/matryer/is"
+	"github.com/splunk/go-genlib/pipelines"
 )
 
 // DefaultOpts provides a battery of tests in basic combinations.
@@ -356,6 +357,48 @@ func TestDrain(t *testing.T) {
 	})
 }
 
+func TestReduce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Parallel()
+
+	reducer := func(a, b string) string {
+		return a + b
+	}
+
+	t.Run("returns reduced value", func(t *testing.T) {
+		is := is.New(t)
+
+		in := pipelines.Chan([]string{"l", "3", "3", "7"})
+		result := pipelines.Reduce(ctx, in, reducer)
+		is.Equal(result, "l337")
+
+		emptyIn := pipelines.Chan([]string{})
+		emptyResult := pipelines.Reduce(ctx, emptyIn, reducer)
+		is.Equal(emptyResult, "")
+	})
+
+	t.Run("returns empty string on done context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		is := is.New(t)
+
+		in := pipelines.Chan([]string{"l", "3", "3", "7"})
+		result := pipelines.Reduce(ctx, in, reducer)
+		is.Equal(result, "")
+	})
+
+	t.Run("returns empty string on closed channel", func(t *testing.T) {
+		is := is.New(t)
+
+		in := make(chan string)
+		close(in)
+
+		result := pipelines.Reduce(ctx, in, reducer)
+		is.Equal(result, "")
+	})
+}
+
 func testClosesOnClose[S, T any](t *testing.T, stage func(context.Context, <-chan S) <-chan T) {
 	t.Run("closes on closed input channel", func(t *testing.T) {
 		in := make(chan S)
@@ -429,9 +472,11 @@ func Example() {
 	expanded := pipelines.Map(ctx, doubled, func(x int) int { return x * 2 })                      // x => x*2
 	exclaimed := pipelines.Map(ctx, expanded, func(x int) string { return fmt.Sprintf("%d!", x) }) // x => "${x}!"
 
-	for out := range exclaimed {
-		fmt.Print(out, " ")
-	}
+	result := pipelines.Reduce(ctx, exclaimed, func(prefix string, str string) string {
+		return prefix + " " + str
+	})
+
+	fmt.Print(result)
 
 	// Output: 2! 4! 6! 8! 10! 12!
 }
