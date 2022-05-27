@@ -385,7 +385,8 @@ func TestReduce(t *testing.T) {
 
 		in := pipelines.Chan([]string{"l", "3", "3", "7"})
 		result := pipelines.Reduce(ctx, in, reducer)
-		is.Equal(result, "")
+
+		is.True(result != "l337")
 	})
 
 	t.Run("returns empty string on closed channel", func(t *testing.T) {
