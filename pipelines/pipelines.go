@@ -116,6 +116,7 @@ func doMap[S, T any](ctx context.Context, in <-chan S, f func(S) T, result chan<
 }
 
 // MapCtx applies f to every value received from its input channel and sends the result to its output channel.
+// The same context passed to MapCtx is passed as an argument to f.
 func MapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) T, opts ...OptionFunc[T]) <-chan T {
 	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
 		doMapCtx(ctx, in, f, out)
@@ -237,6 +238,65 @@ func doWithCancel[T any](ctx context.Context, ch <-chan T, out chan<- T) {
 			case <-ctx.Done():
 				return
 			case out <- t:
+			}
+		}
+	}
+}
+
+// OptionMap applies f to every value received from in and sends all non-nil results to its output channel.
+func OptionMap[S, T any](ctx context.Context, in <-chan S, f func(S) *T, opts ...OptionFunc[T]) <-chan T {
+	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
+		doOptionMap(ctx, in, out, f)
+	})
+}
+
+func doOptionMap[S, T any](ctx context.Context, in <-chan S, out chan<- T, f func(S) *T) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case s, ok := <-in:
+			if !ok {
+				return
+			}
+			t := f(s)
+			if t == nil {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case out <- *t:
+			}
+		}
+	}
+}
+
+// OptionMapCtx applies f to every value received from in and sends all non-nil results to its output channel.
+// The same context passed to OptionMapCtx is passed as an argument to f.
+func OptionMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) *T, opts ...OptionFunc[T]) <-chan T {
+	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
+		doOptionMapCtx(ctx, in, out, f)
+	})
+}
+
+func doOptionMapCtx[S, T any](ctx context.Context, in <-chan S, out chan<- T, f func(context.Context, S) *T) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case s, ok := <-in:
+			if !ok {
+				return
+			}
+			t := f(ctx, s)
+			if t == nil {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case out <- *t:
 			}
 		}
 	}
