@@ -1,9 +1,20 @@
-// Package pipelines provides helper functions for constructing concurrent processing pipelines. Most helpers in this
-// package fork a new goroutine and return a receive-only channel representing their output. Each pipeline stages
-// responds to context cancellation and closure of the input channel by closing the output channel and stopping the
-// forked goroutine.
+// Package pipelines provides helper functions for constructing concurrent processing pipelines.
+// Each pipeline stage represents a single stage in a parallel computation, with an input channel and an output channel.
+// Generally, pipeline stages have signatures starting with a context and input channel as their first arguments, and returning a channel.
+// The return value from a pipeline stage is referred to as the stage's 'output' channel.
 //
-// Channels returned by helpers in this package are unbuffered.
+//   Stage[S,T any](ctx context.Context, in <-chan S, ...) <-chan T
+//
+// Many pipeline stages take a function as an argument, these are run on one or more goroutines, which are managed by this package.
+// Each stage responds to context cancellation or closure of its input channel by closing its output channel and cleaning up all goroutines it manages.
+//
+//
+// By default, each pipeline starts the minimum number of threads required, and returns an unbuffered channel.
+// For performance tuning, pipeline stages in this package can be optionally configured to run on multiple threads or use a buffered output channel.
+//
+// A pipeline stage can be run on a worker pool by passing pipelines.WithPool(n), where n is the number of threads to
+// run the pipeline. A stage can be configured to use a buffered output channel by pasing pipelines.WithBuffer(n), where
+// n is the desired size of the buffered channel.
 package pipelines
 
 import (
@@ -46,8 +57,7 @@ func configure[T any](opts []OptionFunc[T]) config[T] {
 	return result
 }
 
-// Chan converts a slice of type T to a buffered channel which contains the values from in. The resulting channel is
-// closed after its contents are drained.
+// Chan converts a slice of type T to a buffered channel containing the same values.
 func Chan[T any](in []T) <-chan T {
 	result := make(chan T, len(in))
 	defer close(result) // non-empty buffered channels can be drained even when closed.
@@ -57,14 +67,14 @@ func Chan[T any](in []T) <-chan T {
 	return result
 }
 
-// Flatten provides a pipeline stage which converts a channel of []T to a channel of T.
+// Flatten provides a pipeline stage which converts a channel of slices to a channel of scalar values.
+// Each value contained in slices received from the input channel is sent to the output channel.
 func Flatten[T any](ctx context.Context, in <-chan []T, opts ...OptionFunc[T]) <-chan T {
 	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
 		doFlatten(ctx, in, out)
 	})
 }
 
-// doFlatten implements flatten with context cancellation.
 func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
 	for {
 		select {
@@ -79,9 +89,8 @@ func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
 	}
 }
 
-// Map provides a map pipeline stage, applying the provided function to every input received from the in channel and
-// sending it to the returned channel. The result channel is closed when the input channel is closed or the provided
-// context is cancelled.
+// Map applies f to every value received from the input channel and sends the result to the output channel.
+// The output channel is closed when the input channel is closed or the provided context is cancelled.
 func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T, opts ...OptionFunc[T]) <-chan T {
 	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
 		doMap(ctx, in, f, out)
@@ -106,9 +115,7 @@ func doMap[S, T any](ctx context.Context, in <-chan S, f func(S) T, result chan<
 	}
 }
 
-// MapCtx provides a map pipeline stage, applying the provided function to every input received from the in channel,
-// passing the provided context, and passing the result to a new channel which is returned. The result channel is closed
-// when the input channel is closed or the provided context is cancelled.
+// MapCtx applies f to every value received from its input channel and sends the result to its output channel.
 func MapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) T, opts ...OptionFunc[T]) <-chan T {
 	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
 		doMapCtx(ctx, in, f, out)
@@ -133,8 +140,8 @@ func doMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context
 	}
 }
 
-// FlatMap provides a pipeline stage which applies the provided function to every input received from the in channel
-// and passes every element of the slice returned to the output channel.
+// FlatMap applies f to every value received from its input channel and sends all values found in the slice returned from
+// f to its output channnel.
 func FlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T, opts ...OptionFunc[T]) <-chan T {
 	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
 		doFlatMap(ctx, in, f, out)
@@ -155,8 +162,9 @@ func doFlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T, out ch
 	}
 }
 
-// FlatMapCtx provides a pipeline stage which applies the provided context-aware function to every input received from
-// the in channel and passes every element of the slice returned to the output channel, which is returned.
+// FlatMapCtx applies f to every value received from its input channel and sends all values found in the slice returned from
+// f to its output channnel.
+// The same context passed to FlatMapCtx is passed as an argument to f.
 func FlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) []T, opts ...OptionFunc[T]) <-chan T {
 	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
 		doFlatMapCtx(ctx, in, f, out)
@@ -177,8 +185,7 @@ func doFlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Con
 	}
 }
 
-// Combine combines the values from two channels into a third, which is returned. The returned channel is closed once
-// both of the input channels have been closed, or the provided context is cancelled.
+// Combine sends all values received from both of its input channels to its output channel.
 func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, opts ...OptionFunc[T]) <-chan T {
 	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
 		doCombine(ctx, t1, t2, out)
@@ -209,8 +216,8 @@ func doCombine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, out chan<- 
 	}
 }
 
-// WithCancel returns a new channel which receives each value from ch. If the provided context is cancelled or the
-// input channel is closed, the returned channel is also closed.
+// WithCancel passes each value received from its input channel to its output channel.
+// If the provided context is cancelled or the input channel is closed, the output channel is also closed.
 func WithCancel[T any](ctx context.Context, ch <-chan T, opts ...OptionFunc[T]) <-chan T {
 	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
 		doWithCancel(ctx, ch, out)
@@ -235,8 +242,8 @@ func doWithCancel[T any](ctx context.Context, ch <-chan T, out chan<- T) {
 	}
 }
 
-// SendAll blocks the current thread and sends all values in ts to the provided channel while handling context
-// cancellation. It blocks until the channel is closed or the provided context is cancelled.
+// SendAll sends all values in a slice to the provided channel. It blocks until the channel is closed or the provided
+// context is cancelled.
 func SendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
 	for _, t := range ts {
 		select {
@@ -247,10 +254,11 @@ func SendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
 	}
 }
 
-// ForkMapCtx starts a pipeline stage which, for each value of T received from in, forks an invocation of f onto a
-// new goroutine. Any values sent to the channel provided to f are serialized and made available in the output channel.
-// To avoid leaking a goroutine, any function passed must respect context cancellation while sending values to the
-// output channel.
+// ForkMapCtx forks an invocation of f onto a new goroutine for each value received from in.
+// f is passed the output channel directly, and is expected responsible to send its output to this channel.
+// To avoid resource leaks, f must respect context cancellation while sending to this channel.
+//
+// ForkMap should be used with caution, as it introduces potentially unbounded parallelism to a pipeline computation.
 func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S, chan<- T), opts ...OptionFunc[T]) <-chan T {
 	return doWithConf(ctx, configure(opts), func(ctx context.Context, out chan<- T) {
 		doForkMapCtx(ctx, in, f, out)
@@ -278,9 +286,8 @@ func doForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Con
 	}
 }
 
-// Drain blocks the current goroutine and receives all values from the provided channel until it has been closed. Each
-// value recieved is appended to a new slice, which is returned. An error is returned along with a partial result if the
-// provided context is cancelled.
+// Drain receives all values from the provided channel, blocking until the channel has been drained. All values received
+// are provided in a slice to the caller.
 func Drain[T any](ctx context.Context, in <-chan T) ([]T, error) {
 	var result []T
 	for {

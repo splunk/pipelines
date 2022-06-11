@@ -3,13 +3,13 @@ package pipelines_test
 import (
 	"context"
 	"fmt"
+	"github.com/matryer/is"
+	"github.com/splunk/go-genlib/pipelines"
+	"net/http"
 	"sort"
 	"strconv"
 	"testing"
 	"time"
-
-	"github.com/matryer/is"
-	"github.com/splunk/go-genlib/pipelines"
 )
 
 // DefaultOpts provides a battery of tests in basic combinations.
@@ -479,4 +479,22 @@ func Example() {
 	fmt.Print(result)
 
 	// Output: 2! 4! 6! 8! 10! 12!
+}
+
+func ExampleForkMapCtx() {
+	ctx := context.Background()
+
+	// fetch multiple URLs in parallel, sending the results to an output channel.
+	urls := pipelines.Chan([]string{"https://www.google.com", "https://www.splunk.com"})
+	responses := pipelines.ForkMapCtx(ctx, urls, func(ctx context.Context, url string, out chan<- *http.Response) {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			out <- resp
+		}
+	})
+
+	for response := range responses {
+		fmt.Printf("%s: %d\n", response.Request.URL, response.StatusCode)
+	}
 }

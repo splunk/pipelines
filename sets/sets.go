@@ -16,7 +16,7 @@ func New[T comparable](elems ...T) Set[T] {
 	return result
 }
 
-// Add adds the provided element to this set, modifying it if it does not already exist.
+// Add adds the provided element to this set.
 func (s Set[T]) Add(elem T) {
 	s.items[elem] = struct{}{}
 }
