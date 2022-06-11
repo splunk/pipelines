@@ -16,19 +16,22 @@ func (sm *Map[K, V]) Delete(key K) {
 // Load returns the value stored in the map for a key, or nil if no value is present.
 // The ok result indicates whether value was found in the map.
 func (sm *Map[K, V]) Load(key K) (value V, ok bool) {
-	return sm.Map.Load(key)
+	v, ok := sm.Map.Load(key)
+	return v.(V), ok
 }
 
 // LoadAndDelete deletes the value for a key, returning the previous value if any.
 // The loaded result reports whether the key was present.
 func (sm *Map[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
-	return sm.Map.LoadAndDelete(key)
+	v, loaded := sm.Map.LoadAndDelete(key)
+	return v.(V), loaded
 }
 
 // LoadOrStore returns the existing value for the key if present. Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
 func (sm *Map[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
-	return sm.Map.LoadOrStore(key, value)
+	v, loaded := sm.Map.LoadOrStore(key, value)
+	return v.(V), loaded
 }
 
 // Range calls f sequentially for each key and value present in the map.
@@ -70,7 +73,7 @@ func (p *Pool[T]) SetNew(f func() T) {
 //
 // If Get would otherwise return nil and pool.SetNew was called previously, Get returns the result of calling pool.New.
 func (p *Pool[T]) Get() T {
-	return p.pool.Get()
+	return p.pool.Get().(T)
 }
 
 // Put adds x to the pool.
