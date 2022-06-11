@@ -35,11 +35,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-# TODO: enable once stable with generics; see https://github.com/splunk/go-genlib/runs/5604061994
-#      - name: Lint
-#        uses: golangci/golangci-lint-action@v2
-#        with:
-#          version: v1.45.0
+      - name: Lint
+        uses: golangci/golangci-lint-action@v2
 
       - name: fmt
         run: gofmt -l . && test -z $(gofmt -l .)
