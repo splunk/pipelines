@@ -378,14 +378,14 @@ func TestReduce(t *testing.T) {
 		is.Equal(emptyResult, "")
 	})
 
-	t.Run("returns empty string on done context", func(t *testing.T) {
+	t.Run("stops early on done context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		is := is.New(t)
 
-		in := pipelines.Chan([]string{"l", "3", "3", "7"})
+		in := pipelines.Chan([]string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"})
 		result := pipelines.Reduce(ctx, in, reducer)
-		is.Equal(result, "")
+		is.True(result != "1234567890") // technically possible for this to happen, but very unlikely.
 	})
 
 	t.Run("returns empty string on closed channel", func(t *testing.T) {
