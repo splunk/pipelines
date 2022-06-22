@@ -308,14 +308,16 @@ func doOptionMapCtx[S, T any](ctx context.Context, in <-chan S, out chan<- T, f 
 
 // SendAll sends all values in a slice to the provided channel. It blocks until the channel is closed or the provided
 // context is cancelled.
-func SendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
+// An error is returned if and only if the provided context was cancelled before the input channel was closed.
+func SendAll[T any](ctx context.Context, ts []T, ch chan<- T) error {
 	for _, t := range ts {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		case ch <- t:
 		}
 	}
+	return nil
 }
 
 // ForkMapCtx forks an invocation of f onto a new goroutine for each value received from in.
