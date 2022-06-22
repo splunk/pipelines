@@ -44,14 +44,9 @@ func WithPool[T any](numWorkers int) OptionFunc[T] {
 	}
 }
 
-// unbuffered constructs and returns an unbuffered channel of type T.
-func unbuffered[T any]() chan T {
-	return make(chan T)
-}
-
 func configure[T any](opts []OptionFunc[T]) config[T] {
 	result := config[T]{
-		channer: unbuffered[T],
+		channer: func() chan T { return make(chan T) },
 		workers: 1,
 	}
 	for _, opt := range opts {
@@ -88,7 +83,7 @@ func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
 			if !ok {
 				return
 			}
-			SendAll(ctx, t, result)
+			sendAll(ctx, t, result)
 		}
 	}
 }
@@ -162,7 +157,7 @@ func doFlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T, out ch
 			if !ok {
 				return
 			}
-			SendAll(ctx, f(s), out)
+			sendAll(ctx, f(s), out)
 		}
 	}
 }
@@ -185,7 +180,7 @@ func doFlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Con
 			if !ok {
 				return
 			}
-			SendAll(ctx, f(ctx, s), out)
+			sendAll(ctx, f(ctx, s), out)
 		}
 	}
 }
@@ -306,18 +301,16 @@ func doOptionMapCtx[S, T any](ctx context.Context, in <-chan S, out chan<- T, f 
 	}
 }
 
-// SendAll sends all values in a slice to the provided channel. It blocks until the channel is closed or the provided
+// sendAll sends all values in a slice to the provided channel. It blocks until the channel is closed or the provided
 // context is cancelled.
-// An error is returned if and only if the provided context was cancelled before the input channel was closed.
-func SendAll[T any](ctx context.Context, ts []T, ch chan<- T) error {
+func sendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
 	for _, t := range ts {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		case ch <- t:
 		}
 	}
-	return nil
 }
 
 // ForkMapCtx forks an invocation of f onto a new goroutine for each value received from in.

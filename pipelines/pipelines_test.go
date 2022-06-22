@@ -312,48 +312,6 @@ func TestChan(t *testing.T) {
 	})
 }
 
-func TestSendAll(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	t.Parallel()
-
-	t.Run("closes on empty", func(t *testing.T) {
-		is := is.New(t)
-
-		in := make(chan string)
-		go func() {
-			pipelines.SendAll(ctx, nil, in)
-			close(in)
-		}()
-		out := drain(t, in)
-		is.True(len(out) == 0)
-	})
-
-	t.Run("forwards all values", func(t *testing.T) {
-		is := is.New(t)
-
-		in := make(chan string)
-		expected := []string{"1", "2", "3", "4"}
-		go func() {
-			pipelines.SendAll(ctx, expected, in)
-			close(in)
-		}()
-		out := drain(t, in)
-		is.Equal(expected, out)
-	})
-
-	t.Run("returns on cancelled context", func(t *testing.T) {
-		in := make(chan int)
-		ctx, cancel := context.WithCancel(ctx)
-		cancel()
-		go func() {
-			pipelines.SendAll(ctx, []int{1, 2, 3}, in)
-			close(in) // if SendAll blocks, channel is never closed.
-		}()
-		testClosesAfterDrain(t, in)
-	})
-}
-
 func TestWithCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
