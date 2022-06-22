@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// DefaultOpts provides a battery of tests in basic combinations.
+// Opts provides a battery of tests configurations in basic combinations.
 func Opts[T any]() optionMap[T] {
 	return optionMap[T]{
 		"default":     {},
@@ -156,7 +156,8 @@ func TestMapCtx(t *testing.T) {
 			ch := pipelines.MapCtx(ctx, in, lenCtx, opts...)
 
 			out := drain(t, ch)
-			is.Equal([]int{2, 4, 6, 0}, out)
+			sort.Ints(out)
+			is.Equal([]int{0, 2, 4, 6}, out)
 		})
 	})
 
@@ -191,6 +192,72 @@ func TestMap(t *testing.T) {
 	})
 	testClosesOnClose(t, func(ctx context.Context, in <-chan int) <-chan string {
 		return pipelines.Map(ctx, in, strconv.Itoa)
+	})
+}
+
+func TestOptionMap(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Parallel()
+
+	evenStrConv := func(i int) *string {
+		if i%2 == 0 {
+			x := strconv.Itoa(i)
+			return &x
+		}
+		return nil
+	}
+
+	t.Run("maps and filters all values", func(t *testing.T) {
+		withOptions[string](t, Opts[string](), func(t *testing.T, opts []pipelines.OptionFunc[string]) {
+			is := is.New(t)
+
+			in := pipelines.Chan([]int{1, 2, 3, 4, 5, 6})
+			ch := pipelines.OptionMap(ctx, in, evenStrConv, opts...)
+
+			out := drain(t, ch)
+			sort.Strings(out)
+			is.Equal([]string{"2", "4", "6"}, out)
+		})
+	})
+
+	testClosesOnContextDone(t, func(ctx context.Context, in <-chan int) <-chan string {
+		return pipelines.OptionMap(ctx, in, evenStrConv)
+	})
+	testClosesOnClose(t, func(ctx context.Context, in <-chan int) <-chan string {
+		return pipelines.OptionMap(ctx, in, evenStrConv)
+	})
+}
+
+func TestOptionMapCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Parallel()
+
+	lenCtx := func(ctx context.Context, s string) *int {
+		n := len(s)
+		if n%2 == 0 {
+			return &n
+		}
+		return nil
+	}
+	t.Run("maps all values", func(t *testing.T) {
+		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+			is := is.New(t)
+			in := pipelines.Chan([]string{"ab", "a", "abcd", "abcdef", "abc", ""})
+			ch := pipelines.OptionMapCtx(ctx, in, lenCtx, opts...)
+
+			out := drain(t, ch)
+			sort.Ints(out)
+			is.Equal([]int{0, 2, 4, 6}, out)
+		})
+	})
+
+	testClosesOnContextDone(t, func(ctx context.Context, in <-chan string) <-chan int {
+		return pipelines.OptionMapCtx(ctx, in, lenCtx)
+	})
+	testClosesOnClose(t, func(ctx context.Context, in <-chan string) <-chan int {
+		return pipelines.OptionMapCtx(ctx, in, lenCtx)
 	})
 }
 
