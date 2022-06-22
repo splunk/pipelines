@@ -312,48 +312,6 @@ func TestChan(t *testing.T) {
 	})
 }
 
-func TestSendAll(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	t.Parallel()
-
-	t.Run("closes on empty", func(t *testing.T) {
-		is := is.New(t)
-
-		in := make(chan string)
-		go func() {
-			pipelines.SendAll(ctx, nil, in)
-			close(in)
-		}()
-		out := drain(t, in)
-		is.True(len(out) == 0)
-	})
-
-	t.Run("forwards all values", func(t *testing.T) {
-		is := is.New(t)
-
-		in := make(chan string)
-		expected := []string{"1", "2", "3", "4"}
-		go func() {
-			pipelines.SendAll(ctx, expected, in)
-			close(in)
-		}()
-		out := drain(t, in)
-		is.Equal(expected, out)
-	})
-
-	t.Run("returns on cancelled context", func(t *testing.T) {
-		in := make(chan int)
-		ctx, cancel := context.WithCancel(ctx)
-		cancel()
-		go func() {
-			pipelines.SendAll(ctx, []int{1, 2, 3}, in)
-			close(in) // if SendAll blocks, channel is never closed.
-		}()
-		testClosesAfterDrain(t, in)
-	})
-}
-
 func TestWithCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -437,11 +395,13 @@ func TestReduce(t *testing.T) {
 		is := is.New(t)
 
 		in := pipelines.Chan([]string{"l", "3", "3", "7"})
-		result := pipelines.Reduce(ctx, in, reducer)
+		result, err := pipelines.Reduce(ctx, in, reducer)
+		is.Equal(err, nil)
 		is.Equal(result, "l337")
 
 		emptyIn := pipelines.Chan([]string{})
-		emptyResult := pipelines.Reduce(ctx, emptyIn, reducer)
+		emptyResult, err := pipelines.Reduce(ctx, emptyIn, reducer)
+		is.Equal(err, nil)
 		is.Equal(emptyResult, "")
 	})
 
@@ -451,7 +411,8 @@ func TestReduce(t *testing.T) {
 		is := is.New(t)
 
 		in := pipelines.Chan([]string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"})
-		result := pipelines.Reduce(ctx, in, reducer)
+		result, err := pipelines.Reduce(ctx, in, reducer)
+		is.Equal(err.Error(), "context canceled")
 		is.True(result != "1234567890") // technically possible for this to happen, but very unlikely.
 	})
 
@@ -461,7 +422,8 @@ func TestReduce(t *testing.T) {
 		in := make(chan string)
 		close(in)
 
-		result := pipelines.Reduce(ctx, in, reducer)
+		result, err := pipelines.Reduce(ctx, in, reducer)
+		is.Equal(err, nil)
 		is.Equal(result, "")
 	})
 }
@@ -539,9 +501,12 @@ func Example() {
 	expanded := pipelines.Map(ctx, doubled, func(x int) int { return x * 2 })                      // x => x*2
 	exclaimed := pipelines.Map(ctx, expanded, func(x int) string { return fmt.Sprintf("%d!", x) }) // x => "${x}!"
 
-	result := pipelines.Reduce(ctx, exclaimed, func(prefix string, str string) string {
+	result, err := pipelines.Reduce(ctx, exclaimed, func(prefix string, str string) string {
 		return prefix + " " + str
 	})
+	if err != nil {
+		fmt.Println("context was cancelled!")
+	}
 
 	fmt.Print(result)
 
