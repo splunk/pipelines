@@ -3,7 +3,7 @@
 // Generally, pipeline stages have signatures starting with a context and input channel as their first arguments, and returning a channel,
 // as below:
 //
-//   Stage[S,T any](ctx context.Context, in <-chan S, ...) <-chan T
+//   Stage[K,T any](ctx context.Context, in <-chan K, ...) <-chan T
 //
 // The return value from a pipeline stage is referred to as the stage's 'output' channel. Each stage is a non-blocking
 // call which starts one or more goroutines which listen on the input channel and send results to the output channel.
@@ -301,6 +301,13 @@ func doOptionMapCtx[S, T any](ctx context.Context, in <-chan S, out chan<- T, f 
 	}
 }
 
+// GatherChan is a channel created and returned by the Split stage.
+// All values sent to Output each have a matching value of Key.
+type GatherChan[T any, K comparable] struct {
+	Key    K
+	Output <-chan T
+}
+
 // sendAll sends all values in a slice to the provided channel. It blocks until the channel is closed or the provided
 // context is cancelled.
 func sendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
@@ -399,7 +406,7 @@ func doWithOpts[T any](ctx context.Context, opts []OptionFunc[T], doIt func(cont
 // Reduce runs a reducer function on every input received from the in chan and returns the output. Reduce blocks the
 // caller until the input channel is closed or the provided context is cancelled.
 // An error is returned if and only if the provided context was cancelled before the input channel was closed.
-func Reduce[S, T string](ctx context.Context, in <-chan S, f func(T, S) T) (T, error) {
+func Reduce[S, T any](ctx context.Context, in <-chan S, f func(T, S) T) (T, error) {
 	var result T
 	for {
 		select {
@@ -412,4 +419,59 @@ func Reduce[S, T string](ctx context.Context, in <-chan S, f func(T, S) T) (T, e
 			result = f(result, s)
 		}
 	}
+}
+
+type Pair[K, T any] struct {
+	Key   K
+	Value T
+}
+
+// KeyReduce provides a pipeline stage which splits its input based on the value of the provided keyFunc.
+// For each value of keyFunc seen, a new execution of Reduce is started on its own goroutine.
+// Values with matching comparison keys are each sent to the same Reducer.
+// The result of each Reducer is provided in the output as a Pair[K,T].
+//
+// KeyReduce should be used with caution, as it introduces potentially unbounded parallelism to a pipeline computation.
+func KeyReduce[S, T any, K comparable](ctx context.Context, in <-chan S, keyFunc func(S) K, f func(T, S) T) chan Pair[K, T] {
+	result := make(chan Pair[K, T])
+
+	go func() {
+		defer close(result)
+		reducerChans := make(map[K]chan S)
+		var wg sync.WaitGroup
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case s, ok := <-in:
+				if !ok {
+					for _, ch := range reducerChans { // signal all reducers to stop.
+						close(ch)
+					}
+					wg.Wait() // wait for reducers to finish before returning.
+					return
+				}
+				key := keyFunc(s)
+				// start up a new worker to reduce for the new comparison key; if one is not already running.
+				if _, ok := reducerChans[key]; !ok {
+
+					reducerChans[key] = make(chan S)
+					wg.Add(1)
+					go func(k K, ch chan S) {
+						defer wg.Done()
+						if t, err := Reduce(ctx, reducerChans[k], f); err == nil {
+							result <- Pair[K, T]{Key: k, Value: t}
+						}
+					}(key, reducerChans[key])
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case reducerChans[key] <- s:
+				}
+			}
+		}
+	}()
+
+	return result
 }

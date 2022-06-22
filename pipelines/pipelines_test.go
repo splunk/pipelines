@@ -530,3 +530,26 @@ func ExampleForkMapCtx() {
 		fmt.Printf("%s: %d\n", response.Request.URL, response.StatusCode)
 	}
 }
+
+func ExampleKeyReduce() {
+	// implementing word count via KeyReduce.
+	ctx := context.Background()
+
+	corpus := pipelines.Chan([]string{"the", "quick", "brown", "fox", "jumped", "over", "the", "lazy", "dog"})
+	firstByte := func(s string) byte { return s[0] }
+
+	out := pipelines.KeyReduce(ctx, corpus, firstByte, func(count int, s string) int {
+		return count + 1
+	})
+	mapp, _ := pipelines.Reduce(ctx, out, func(mapp map[string]int, s pipelines.Pair[byte, int]) map[string]int {
+		str := string([]byte{s.Key})
+		if mapp == nil {
+			return map[string]int{str: s.Value}
+		}
+		mapp[str] = s.Value
+		return mapp
+	})
+	fmt.Println(mapp)
+
+	// Output: map[b:1 d:1 f:1 j:1 l:1 o:1 q:1 t:2]
+}
