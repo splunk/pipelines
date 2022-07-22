@@ -111,6 +111,12 @@ func TestCombine(t *testing.T) {
 	})
 }
 
+func TestTee(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Skip()
+}
+
 func TestForkMapCtx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

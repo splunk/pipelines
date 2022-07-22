@@ -216,6 +216,44 @@ func doCombine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, out chan<- 
 	}
 }
 
+// Tee sends all values received from the input channel into 2 output channels
+func Tee[T any](ctx context.Context, ch <-chan T, buffsize int) (<-chan T, <-chan T) {
+	chan1, chan2 := make(chan T, buffsize), make(chan T, buffsize)
+	go func() {
+		defer func() {
+			close(chan1)
+			close(chan2)
+		}()
+		for {
+			select {
+			case t, ok := <-ch:
+				if !ok {
+					return
+				}
+				select {
+				case chan1 <- t:
+					select {
+					case chan2 <- t:
+					case <-ctx.Done():
+						return
+					}
+				case chan2 <- t:
+					select {
+					case chan1 <- t:
+					case <-ctx.Done():
+						return
+					}
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return chan1, chan2
+}
+
 // WithCancel passes each value received from its input channel to its output channel.
 // If the provided context is cancelled or the input channel is closed, the output channel is also closed.
 func WithCancel[T any](ctx context.Context, ch <-chan T, opts ...OptionFunc[T]) <-chan T {
