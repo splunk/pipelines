@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -108,6 +109,50 @@ func TestCombine(t *testing.T) {
 	})
 	testClosesOnContextDone(t, func(ctx context.Context, in2 <-chan int) <-chan int {
 		return pipelines.Combine(ctx, closed, in2)
+	})
+}
+
+func TestTee(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Parallel()
+
+	t.Run("forks values", func(t *testing.T) {
+		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+			is := is.New(t)
+
+			in := pipelines.Chan([]int{0, 1, 2, 3})
+			ch1, ch2 := pipelines.Tee(ctx, in, opts...)
+			var out1, out2 []int
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				out1 = drain(t, ch1) // both channels must be drained simultaneously.
+			}()
+			out2 = drain(t, ch2)
+			wg.Wait()
+
+			sort.Ints(out1)
+			sort.Ints(out2)
+			is.Equal([]int{0, 1, 2, 3}, out1)
+			is.Equal([]int{0, 1, 2, 3}, out2)
+		})
+	})
+	t.Run("closes on closed input channel", func(t *testing.T) {
+		in := make(chan string)
+		close(in)
+		out1, out2 := pipelines.Tee(context.Background(), in)
+		testClosesAfterDrain(t, out1)
+		testClosesAfterDrain(t, out2)
+	})
+	t.Run("result channel closes on context done", func(t *testing.T) {
+		in := make(chan int)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		out1, out2 := pipelines.Tee(ctx, in)
+		testClosesAfterDrain(t, out1)
+		testClosesAfterDrain(t, out2)
 	})
 }
 
