@@ -216,42 +216,45 @@ func doCombine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, out chan<- 
 	}
 }
 
-// Tee sends all values received from the input channel into 2 output channels
-func Tee[T any](ctx context.Context, ch <-chan T, buffsize int) (<-chan T, <-chan T) {
-	chan1, chan2 := make(chan T, buffsize), make(chan T, buffsize)
-	go func() {
-		defer func() {
-			close(chan1)
-			close(chan2)
-		}()
-		for {
+// Tee sends all values received from the input channel into 2 output channels. Both output channels must be
+// drained simultaneously to avoid blocking this pipeline stage.
+func Tee[T any](ctx context.Context, ch <-chan T, opts ...OptionFunc[T]) (<-chan T, <-chan T) {
+	conf := configure(opts)
+	chan1, chan2 := conf.channer(), conf.channer()
+	doOnPool(ctx, conf.workers, func(ctx context.Context, chans ...chan<- T) {
+		out1, out2 := chans[0], chans[1]
+		doTee(ctx, ch, out1, out2)
+	}, chan1, chan2)
+	return chan1, chan2
+}
+
+func doTee[T any](ctx context.Context, ch <-chan T, chan1, chan2 chan<- T) {
+	for {
+		select {
+		case t, ok := <-ch:
+			if !ok {
+				return
+			}
 			select {
-			case t, ok := <-ch:
-				if !ok {
+			case chan1 <- t:
+				select {
+				case chan2 <- t:
+				case <-ctx.Done():
 					return
 				}
+			case chan2 <- t:
 				select {
 				case chan1 <- t:
-					select {
-					case chan2 <- t:
-					case <-ctx.Done():
-						return
-					}
-				case chan2 <- t:
-					select {
-					case chan1 <- t:
-					case <-ctx.Done():
-						return
-					}
 				case <-ctx.Done():
 					return
 				}
 			case <-ctx.Done():
 				return
 			}
+		case <-ctx.Done():
+			return
 		}
-	}()
-	return chan1, chan2
+	}
 }
 
 // WithCancel passes each value received from its input channel to its output channel.
@@ -432,6 +435,35 @@ func doWithOpts[T any](ctx context.Context, opts []OptionFunc[T], doIt func(cont
 		}
 	}
 	return out
+}
+
+func doOnPool[T any](ctx context.Context, poolSize int, doIt func(context.Context, ...chan<- T), outs ...chan<- T) {
+	closeAll := func() {
+		for _, ch := range outs {
+			close(ch)
+		}
+	}
+	if poolSize == 1 {
+		go func() {
+			defer closeAll()
+			doIt(ctx, outs...)
+		}()
+	} else {
+		var wg sync.WaitGroup
+		for i := 0; i < poolSize; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer func() {
+					wg.Done()
+					if id == 0 { // first thread closes the output channel.
+						wg.Wait()
+						closeAll()
+					}
+				}()
+				doIt(ctx, outs...)
+			}(i)
+		}
+	}
 }
 
 // Reduce runs a reducer function on every input received from the in chan and returns the output. Reduce blocks the
