@@ -496,6 +496,7 @@ func testClosesOnContextDone[S, T any](t *testing.T, stage func(context.Context,
 // testClosesAfterDrain blocks and tests whether the provided channel is closed after being drained. Fails after 1
 // second if the channel remains open with no value being received.
 func testClosesAfterDrain[T any](t *testing.T, ch <-chan T) {
+	fmt.Println("testing close!", ch)
 	for {
 		select {
 		case <-time.After(1 * time.Second):
