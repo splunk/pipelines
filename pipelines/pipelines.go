@@ -439,7 +439,8 @@ func doForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Con
 func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan<- T), conf config[T]) []<-chan T {
 	outs := conf.makeOutputs()
 	if conf.workers == 1 {
-		go func() { // avoid any overhead from the WaitGroup.
+		// when there's only one worker, avoid overhead from the WaitGroup
+		go func() {
 			if conf.doneCancel != nil {
 				defer conf.doneCancel()
 			}
@@ -451,7 +452,8 @@ func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan<-
 			doIt(ctx, sendOnly(outs)...)
 		}()
 	} else {
-		var wg sync.WaitGroup // run on worker pool
+		// run on worker pool; wait group for pool being done
+		var wg sync.WaitGroup
 		for i := 0; i < conf.workers; i++ {
 			wg.Add(1)
 			go func(id int) {
@@ -474,37 +476,6 @@ func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan<-
 		}
 	}
 	return recvOnly(outs)
-}
-
-// doOnPool performs the function doIt on a pool of size poolSize, closing all channels passed to outs when the
-// invocation of doIt completes.
-func doOnPool[T any](ctx context.Context, poolSize int, doIt func(context.Context, ...chan<- T), outs ...chan<- T) {
-	closeAll := func() {
-		for _, ch := range outs {
-			close(ch)
-		}
-	}
-	if poolSize == 1 {
-		go func() {
-			defer closeAll()
-			doIt(ctx, outs...)
-		}()
-	} else {
-		var wg sync.WaitGroup
-		for i := 0; i < poolSize; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer func() {
-					wg.Done()
-					if id == 0 { // first thread closes the output channel.
-						wg.Wait()
-						closeAll()
-					}
-				}()
-				doIt(ctx, outs...)
-			}(i)
-		}
-	}
 }
 
 // Drain receives all values from the provided channel and returns them in a slice.
