@@ -366,7 +366,7 @@ func doForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Con
 type Option func(*config)
 
 // WithBuffer configures a pipeline to return a buffered output channel with a buffer of the provided size.s
-func WithBuffer[T any](size int) Option {
+func WithBuffer(size int) Option {
 	return func(conf *config) {
 		conf.bufferSize = size
 	}
@@ -374,15 +374,16 @@ func WithBuffer[T any](size int) Option {
 
 // WithPool configures a pipeline to run the provided stage on a parallel worker pool of the given size. All workers are
 // kept alive until the input channel is closed or the provided context is cancelled.
-func WithPool[T any](numWorkers int) Option {
+func WithPool(numWorkers int) Option {
 	return func(conf *config) {
 		conf.workers = numWorkers
 	}
 }
 
 // WithDone configures a pipeline stage to cancel the returned context when all goroutines started by the stage
-// have stopped.
-func WithDone[T any](ctx context.Context) (Option, context.Context) {
+// have been stopped. This is appropriate for termination detection in a single pipeline stage. To await termination of
+// multiple pipeline stages, use WithWaitGroup.
+func WithDone(ctx context.Context) (Option, context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	return func(conf *config) {
 		conf.doneCancel = cancel
@@ -391,7 +392,7 @@ func WithDone[T any](ctx context.Context) (Option, context.Context) {
 
 // WithWaitGroup configures a pipeline stage to add a value to the provided WaitGroup for each goroutine started by the
 // stage, and signal Done when each goroutine has completed.
-func WithWaitGroup[T any](wg *sync.WaitGroup) Option {
+func WithWaitGroup(wg *sync.WaitGroup) Option {
 	return func(conf *config) {
 		conf.wg = wg
 	}
@@ -450,8 +451,8 @@ func configure(opts []Option) config {
 func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan T), conf config) []chan T {
 	outs := makeOutputChannels[T](conf)
 	if conf.workers == 1 {
+		// run without a worker pool to avoid overhead from the WaitGroup
 		conf.add1()
-		// when there's only one worker, avoid overhead from the WaitGroup
 		go func() {
 			defer func() {
 				for _, ch := range outs {
