@@ -13,12 +13,16 @@ import (
 	"time"
 )
 
-// Opts provides a battery of tests configurations in basic combinations.
-func Opts[T any]() optionMap[T] {
-	return optionMap[T]{
-		"default":     {},
-		"pooled 3":    {pipelines.WithPool[T](3)},
-		"buffered 10": {pipelines.WithBuffer[T](10)},
+// opts provides a battery of tests configurations in basic combinations.
+func opts() optionMap {
+	doneOpt, _ := pipelines.WithDone(context.Background())
+	return optionMap{
+		"default":                 {},
+		"pooled 3":                {pipelines.WithPool(3)},
+		"buffered 10":             {pipelines.WithBuffer(10)},
+		"waitgroup":               {pipelines.WithWaitGroup(&sync.WaitGroup{})},
+		"pooled 5+waitgroup":      {pipelines.WithWaitGroup(&sync.WaitGroup{}), pipelines.WithPool(5)},
+		"pooled 5+waitgroup+done": {pipelines.WithWaitGroup(&sync.WaitGroup{}), pipelines.WithPool(5), doneOpt},
 	}
 }
 
@@ -30,7 +34,7 @@ func TestFlatMapCtx(t *testing.T) {
 		return []string{fmt.Sprintf("%d", x), fmt.Sprintf("%d!", x)}
 	}
 	t.Run("maps and serializes output", func(t *testing.T) {
-		withOptions[string](t, Opts[string](), func(t *testing.T, opts []pipelines.OptionFunc[string]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 			in := pipelines.Chan([]int{1, 2, 3})
 			ch := pipelines.FlatMapCtx(ctx, in, double, opts...)
@@ -41,12 +45,17 @@ func TestFlatMapCtx(t *testing.T) {
 		})
 	})
 
-	testClosesOnClose(t, func(ctx context.Context, s <-chan int) <-chan string {
+	optStage := func(ctx context.Context, opt pipelines.Option, s <-chan int) <-chan string {
+		return pipelines.FlatMapCtx(ctx, s, double, opt)
+	}
+	testWithDone(t, optStage)
+	testWithWaitGroup(t, optStage)
+
+	stage := func(ctx context.Context, s <-chan int) <-chan string {
 		return pipelines.FlatMapCtx(ctx, s, double)
-	})
-	testClosesOnContextDone(t, func(ctx context.Context, s <-chan int) <-chan string {
-		return pipelines.FlatMapCtx(ctx, s, double)
-	})
+	}
+	testClosesOnClose(t, stage)
+	testClosesOnContextDone(t, stage)
 }
 
 func TestFlatMap(t *testing.T) {
@@ -57,7 +66,7 @@ func TestFlatMap(t *testing.T) {
 		return []int{x, x * 2}
 	}
 	t.Run("maps and serializes output", func(t *testing.T) {
-		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 			in := pipelines.Chan([]int{1, 2, 3, 4, 5})
 			ch := pipelines.FlatMap(ctx, in, double, opts...)
@@ -68,12 +77,17 @@ func TestFlatMap(t *testing.T) {
 		})
 	})
 
-	testClosesOnClose(t, func(ctx context.Context, s <-chan int) <-chan int {
+	optStage := func(ctx context.Context, opt pipelines.Option, s <-chan int) <-chan int {
+		return pipelines.FlatMap(ctx, s, double, opt)
+	}
+	testWithDone(t, optStage)
+	testWithWaitGroup(t, optStage)
+
+	stage := func(ctx context.Context, s <-chan int) <-chan int {
 		return pipelines.FlatMap(ctx, s, double)
-	})
-	testClosesOnContextDone(t, func(ctx context.Context, s <-chan int) <-chan int {
-		return pipelines.FlatMap(ctx, s, double)
-	})
+	}
+	testClosesOnClose(t, stage)
+	testClosesOnContextDone(t, stage)
 }
 
 func TestCombine(t *testing.T) {
@@ -83,7 +97,7 @@ func TestCombine(t *testing.T) {
 	t.Parallel()
 
 	t.Run("combines values", func(t *testing.T) {
-		withOptions[string](t, Opts[string](), func(t *testing.T, opts []pipelines.OptionFunc[string]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 			ch1 := pipelines.Chan([]string{"1", "2", "3"})
 			ch2 := pipelines.Chan([]string{"4", "5", "6"})
@@ -97,19 +111,29 @@ func TestCombine(t *testing.T) {
 
 	closed := make(chan int)
 	close(closed)
+
 	// each argument channel must be tested separately
-	testClosesOnClose(t, func(ctx context.Context, in1 <-chan int) <-chan int {
+	optStage1 := func(ctx context.Context, opt pipelines.Option, in1 <-chan int) <-chan int {
+		return pipelines.Combine(ctx, in1, closed, opt)
+	}
+	optStage2 := func(ctx context.Context, opt pipelines.Option, in2 <-chan int) <-chan int {
+		return pipelines.Combine(ctx, closed, in2, opt)
+	}
+	testWithDone(t, optStage1)
+	testWithDone(t, optStage2)
+	testWithWaitGroup(t, optStage1)
+	testWithWaitGroup(t, optStage2)
+
+	stage1 := func(ctx context.Context, in1 <-chan int) <-chan int {
 		return pipelines.Combine(ctx, in1, closed)
-	})
-	testClosesOnClose(t, func(ctx context.Context, in2 <-chan int) <-chan int {
+	}
+	stage2 := func(ctx context.Context, in2 <-chan int) <-chan int {
 		return pipelines.Combine(ctx, closed, in2)
-	})
-	testClosesOnContextDone(t, func(ctx context.Context, in1 <-chan int) <-chan int {
-		return pipelines.Combine(ctx, in1, closed)
-	})
-	testClosesOnContextDone(t, func(ctx context.Context, in2 <-chan int) <-chan int {
-		return pipelines.Combine(ctx, closed, in2)
-	})
+	}
+	testClosesOnClose(t, stage1)
+	testClosesOnClose(t, stage2)
+	testClosesOnContextDone(t, stage1)
+	testClosesOnContextDone(t, stage2)
 }
 
 func TestTee(t *testing.T) {
@@ -118,7 +142,7 @@ func TestTee(t *testing.T) {
 	t.Parallel()
 
 	t.Run("forks values", func(t *testing.T) {
-		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 
 			in := pipelines.Chan([]int{0, 1, 2, 3})
@@ -168,7 +192,7 @@ func TestForkMapCtx(t *testing.T) {
 	}
 
 	t.Run("maps all values", func(t *testing.T) {
-		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 
 			in := pipelines.Chan([]int{0, 1, 2})
@@ -178,12 +202,17 @@ func TestForkMapCtx(t *testing.T) {
 			is.Equal([]int{0, 1, 2, 3, 4, 5, 6, 7, 8}, out)
 		})
 	})
-	testClosesOnClose(t, func(ctx context.Context, in <-chan int) <-chan int {
+	optStage := func(ctx context.Context, opt pipelines.Option, in <-chan int) <-chan int {
+		return pipelines.ForkMapCtx(ctx, in, triplify, opt)
+	}
+	testWithDone(t, optStage)
+	testWithWaitGroup(t, optStage)
+
+	stage := func(ctx context.Context, in <-chan int) <-chan int {
 		return pipelines.ForkMapCtx(ctx, in, triplify)
-	})
-	testClosesOnContextDone(t, func(ctx context.Context, in <-chan int) <-chan int {
-		return pipelines.ForkMapCtx(ctx, in, triplify)
-	})
+	}
+	testClosesOnClose(t, stage)
+	testClosesOnContextDone(t, stage)
 }
 
 func TestMapCtx(t *testing.T) {
@@ -195,7 +224,7 @@ func TestMapCtx(t *testing.T) {
 		return len(s)
 	}
 	t.Run("maps all values", func(t *testing.T) {
-		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 			in := pipelines.Chan([]string{"ab", "abcd", "abcdef", ""})
 			ch := pipelines.MapCtx(ctx, in, lenCtx, opts...)
@@ -206,12 +235,17 @@ func TestMapCtx(t *testing.T) {
 		})
 	})
 
-	testClosesOnContextDone(t, func(ctx context.Context, in <-chan string) <-chan int {
+	optStage := func(ctx context.Context, opt pipelines.Option, in <-chan string) <-chan int {
+		return pipelines.MapCtx(ctx, in, lenCtx, opt)
+	}
+	testWithDone(t, optStage)
+	testWithWaitGroup(t, optStage)
+
+	stage := func(ctx context.Context, in <-chan string) <-chan int {
 		return pipelines.MapCtx(ctx, in, lenCtx)
-	})
-	testClosesOnClose(t, func(ctx context.Context, in <-chan string) <-chan int {
-		return pipelines.MapCtx(ctx, in, lenCtx)
-	})
+	}
+	testClosesOnContextDone(t, stage)
+	testClosesOnClose(t, stage)
 }
 
 func TestMap(t *testing.T) {
@@ -220,7 +254,7 @@ func TestMap(t *testing.T) {
 	t.Parallel()
 
 	t.Run("maps all values", func(t *testing.T) {
-		withOptions[string](t, Opts[string](), func(t *testing.T, opts []pipelines.OptionFunc[string]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 
 			in := pipelines.Chan([]int{1, 2, 3, 4, 5})
@@ -231,13 +265,16 @@ func TestMap(t *testing.T) {
 			is.Equal([]string{"1", "2", "3", "4", "5"}, out)
 		})
 	})
-
-	testClosesOnContextDone(t, func(ctx context.Context, in <-chan int) <-chan string {
+	optStage := func(ctx context.Context, opt pipelines.Option, in <-chan int) <-chan string {
+		return pipelines.Map(ctx, in, strconv.Itoa, opt)
+	}
+	testWithDone(t, optStage)
+	testWithWaitGroup(t, optStage)
+	stage := func(ctx context.Context, in <-chan int) <-chan string {
 		return pipelines.Map(ctx, in, strconv.Itoa)
-	})
-	testClosesOnClose(t, func(ctx context.Context, in <-chan int) <-chan string {
-		return pipelines.Map(ctx, in, strconv.Itoa)
-	})
+	}
+	testClosesOnContextDone(t, stage)
+	testClosesOnClose(t, stage)
 }
 
 func TestOptionMap(t *testing.T) {
@@ -254,7 +291,7 @@ func TestOptionMap(t *testing.T) {
 	}
 
 	t.Run("maps and filters all values", func(t *testing.T) {
-		withOptions[string](t, Opts[string](), func(t *testing.T, opts []pipelines.OptionFunc[string]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 
 			in := pipelines.Chan([]int{1, 2, 3, 4, 5, 6})
@@ -265,13 +302,17 @@ func TestOptionMap(t *testing.T) {
 			is.Equal([]string{"2", "4", "6"}, out)
 		})
 	})
+	optStage := func(ctx context.Context, opt pipelines.Option, in <-chan int) <-chan string {
+		return pipelines.OptionMap(ctx, in, evenStrConv, opt)
+	}
+	testWithDone(t, optStage)
+	testWithWaitGroup(t, optStage)
 
-	testClosesOnContextDone(t, func(ctx context.Context, in <-chan int) <-chan string {
+	stage := func(ctx context.Context, in <-chan int) <-chan string {
 		return pipelines.OptionMap(ctx, in, evenStrConv)
-	})
-	testClosesOnClose(t, func(ctx context.Context, in <-chan int) <-chan string {
-		return pipelines.OptionMap(ctx, in, evenStrConv)
-	})
+	}
+	testClosesOnContextDone(t, stage)
+	testClosesOnClose(t, stage)
 }
 
 func TestOptionMapCtx(t *testing.T) {
@@ -287,7 +328,7 @@ func TestOptionMapCtx(t *testing.T) {
 		return nil
 	}
 	t.Run("maps all values", func(t *testing.T) {
-		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 			in := pipelines.Chan([]string{"ab", "a", "abcd", "abcdef", "abc", ""})
 			ch := pipelines.OptionMapCtx(ctx, in, lenCtx, opts...)
@@ -298,12 +339,17 @@ func TestOptionMapCtx(t *testing.T) {
 		})
 	})
 
-	testClosesOnContextDone(t, func(ctx context.Context, in <-chan string) <-chan int {
+	optStage := func(ctx context.Context, opt pipelines.Option, in <-chan string) <-chan int {
+		return pipelines.OptionMapCtx(ctx, in, lenCtx, opt)
+	}
+	testWithDone(t, optStage)
+	testWithWaitGroup(t, optStage)
+
+	stage := func(ctx context.Context, in <-chan string) <-chan int {
 		return pipelines.OptionMapCtx(ctx, in, lenCtx)
-	})
-	testClosesOnClose(t, func(ctx context.Context, in <-chan string) <-chan int {
-		return pipelines.OptionMapCtx(ctx, in, lenCtx)
-	})
+	}
+	testClosesOnContextDone(t, stage)
+	testClosesOnClose(t, stage)
 }
 
 func TestFlatten(t *testing.T) {
@@ -312,7 +358,7 @@ func TestFlatten(t *testing.T) {
 	t.Parallel()
 
 	t.Run("flattens all values", func(t *testing.T) {
-		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			is := is.New(t)
 
 			in := pipelines.Chan([][]int{{1, 2, 3}, {4, 5, 6}, {}, {7}})
@@ -324,12 +370,17 @@ func TestFlatten(t *testing.T) {
 		})
 	})
 
-	testClosesOnContextDone(t, func(ctx context.Context, s <-chan []int) <-chan int {
-		return pipelines.Flatten[int](ctx, s)
-	})
-	testClosesOnClose(t, func(ctx context.Context, s <-chan []int) <-chan int {
-		return pipelines.Flatten[int](ctx, s)
-	})
+	optStage := func(ctx context.Context, opt pipelines.Option, s <-chan []int) <-chan int {
+		return pipelines.Flatten(ctx, s, opt)
+	}
+	testWithDone(t, optStage)
+	testWithWaitGroup(t, optStage)
+
+	stage := func(ctx context.Context, s <-chan []int) <-chan int {
+		return pipelines.Flatten(ctx, s)
+	}
+	testClosesOnContextDone(t, stage)
+	testClosesOnClose(t, stage)
 }
 
 func TestChan(t *testing.T) {
@@ -363,7 +414,7 @@ func TestWithCancel(t *testing.T) {
 
 	t.Parallel()
 	t.Run("result channel closes on context done", func(t *testing.T) {
-		withOptions[int](t, Opts[int](), func(t *testing.T, opts []pipelines.OptionFunc[int]) {
+		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 			in := make(chan int)
 			ctx, cancel := context.WithCancel(ctx)
 			cancel()
@@ -473,7 +524,53 @@ func TestReduce(t *testing.T) {
 	})
 }
 
+func testWithWaitGroup[S, T any](t *testing.T, stage func(context.Context, pipelines.Option, <-chan S) <-chan T) {
+	t.Helper()
+	t.Run("WithWaitGroup", func(t *testing.T) {
+		ctx := context.Background()
+		var wg sync.WaitGroup
+
+		in := make(chan S)
+		out := stage(ctx, pipelines.WithWaitGroup(&wg), in)
+		close(in)
+		testClosesAfterDrain(t, out)
+
+		// validate WaitGroup has hit zero
+		complete := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(complete)
+		}()
+
+		select {
+		case <-time.After(1 * time.Second):
+			t.Errorf("done not cancelled: timed out")
+		case <-complete:
+			return
+		}
+	})
+}
+
+func testWithDone[S, T any](t *testing.T, stage func(context.Context, pipelines.Option, <-chan S) <-chan T) {
+	t.Helper()
+	t.Run("WithDone", func(t *testing.T) {
+		in := make(chan S)
+		opt, ctx := pipelines.WithDone(context.Background())
+		out := stage(ctx, opt, in)
+		close(in)
+		testClosesAfterDrain(t, out)
+		select {
+		case <-time.After(1 * time.Second):
+			t.Errorf("done not cancelled: timed out")
+			return
+		case <-ctx.Done():
+			return
+		}
+	})
+}
+
 func testClosesOnClose[S, T any](t *testing.T, stage func(context.Context, <-chan S) <-chan T) {
+	t.Helper()
 	t.Run("closes on closed input channel", func(t *testing.T) {
 		in := make(chan S)
 		close(in)
@@ -484,6 +581,7 @@ func testClosesOnClose[S, T any](t *testing.T, stage func(context.Context, <-cha
 
 // testClosesOnContextDone tests that a pipeline stage closes its output channel when the context is closed.
 func testClosesOnContextDone[S, T any](t *testing.T, stage func(context.Context, <-chan S) <-chan T) {
+	t.Helper()
 	t.Run("result channel closes on context done", func(t *testing.T) {
 		in := make(chan S)
 		ctx, cancel := context.WithCancel(context.Background())
@@ -496,6 +594,7 @@ func testClosesOnContextDone[S, T any](t *testing.T, stage func(context.Context,
 // testClosesAfterDrain blocks and tests whether the provided channel is closed after being drained. Fails after 1
 // second if the channel remains open with no value being received.
 func testClosesAfterDrain[T any](t *testing.T, ch <-chan T) {
+	t.Helper()
 	for {
 		select {
 		case <-time.After(1 * time.Second):
@@ -512,6 +611,7 @@ func testClosesAfterDrain[T any](t *testing.T, ch <-chan T) {
 // drain blocks and drains the provided channel, returning the sequence of values received as a slice. Returns once the
 // channel has been closed.
 func drain[T any](t *testing.T, ch <-chan T) []T {
+	t.Helper()
 	var result []T
 	for {
 		select {
@@ -527,9 +627,10 @@ func drain[T any](t *testing.T, ch <-chan T) []T {
 	}
 }
 
-type optionMap[T any] map[string][]pipelines.OptionFunc[T]
+type optionMap map[string][]pipelines.Option
 
-func withOptions[T any](t *testing.T, opts optionMap[T], f func(*testing.T, []pipelines.OptionFunc[T])) {
+func withOptions(t *testing.T, opts optionMap, f func(*testing.T, []pipelines.Option)) {
+	t.Helper()
 	for name, options := range opts {
 		t.Run(name, func(t *testing.T) {
 			f(t, options)

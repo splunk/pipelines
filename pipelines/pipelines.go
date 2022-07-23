@@ -1,14 +1,15 @@
 // Package pipelines provides helper functions for constructing concurrent processing pipelines.
 // Each pipeline stage represents a single stage in a parallel computation, with an input channel and an output channel.
-// Generally, pipeline stages have signatures starting with a context and input channel as their first arguments, and returning a channel,
-// as below:
+// Generally, pipeline stages have signatures starting with a context and input channel as their first arguments, and
+// returning a channel, as below:
 //
 //   Stage[S,T any](ctx context.Context, in <-chan S, ...) <-chan T
 //
 // The return value from a pipeline stage is referred to as the stage's 'output' channel. Each stage is a non-blocking
 // call which starts one or more goroutines which listen on the input channel and send results to the output channel.
-// Goroutines started by each stage respond to context cancellation or closure of the input channel by closing its output channel and cleaning up all goroutines started.
-// Many pipeline stages take a function as an argument, which transform the input and output in some way.
+// Goroutines started by each stage respond to context cancellation or closure of the input channel by closing its
+// output channel and cleaning up all goroutines started. Many pipeline stages take a function as an argument, which
+// transform the input and output in some way.
 //
 // By default, each pipeline starts the minimum number of threads required for its operation, and returns an unbuffered channel.
 // These defaults can be modified by passing the result of WithBuffer or WithPool as optional arguments.
@@ -18,42 +19,6 @@ import (
 	"context"
 	"sync"
 )
-
-type config[T any] struct {
-	channer func() chan T
-	workers int
-}
-
-// An OptionFunc is passed to optionally configure a pipeline stage.
-type OptionFunc[T any] func(*config[T])
-
-// WithBuffer configures a pipeline to return a buffered output channel with a buffer of the provided size.s
-func WithBuffer[T any](size int) OptionFunc[T] {
-	return func(conf *config[T]) {
-		conf.channer = func() chan T {
-			return make(chan T, size)
-		}
-	}
-}
-
-// WithPool configures a pipeline to run the provided stage on a parallel worker pool of the given size. All workers are
-// kept alive until the input channel is closed or the provided context is cancelled.
-func WithPool[T any](numWorkers int) OptionFunc[T] {
-	return func(conf *config[T]) {
-		conf.workers = numWorkers
-	}
-}
-
-func configure[T any](opts []OptionFunc[T]) config[T] {
-	result := config[T]{
-		channer: func() chan T { return make(chan T) },
-		workers: 1,
-	}
-	for _, opt := range opts {
-		opt(&result)
-	}
-	return result
-}
 
 // Chan converts a slice of type T to a buffered channel containing the same values. Unlike other funcs in this package,
 // Chan does not start any new goroutines.
@@ -68,10 +33,10 @@ func Chan[T any](in []T) <-chan T {
 
 // Flatten provides a pipeline stage which converts a channel of slices to a channel of scalar values.
 // Each value contained in slices received from the input channel is sent to the output channel.
-func Flatten[T any](ctx context.Context, in <-chan []T, opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doFlatten(ctx, in, out)
-	})
+func Flatten[T any](ctx context.Context, in <-chan []T, opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doFlatten(ctx, in, out[0])
+	}, configure(opts)))
 }
 
 func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
@@ -90,10 +55,18 @@ func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
 
 // Map applies f to every value received from the input channel and sends the result to the output channel.
 // The output channel is closed when the input channel is closed or the provided context is cancelled.
-func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T, opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doMap(ctx, in, f, out)
-	})
+func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T, opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doMap(ctx, in, f, out[0])
+	}, configure(opts)))
+}
+
+func return1[T any](chans []chan T) <-chan T {
+	return chans[0]
+}
+
+func return2[T any](chans []chan T) (<-chan T, <-chan T) {
+	return chans[0], chans[1]
 }
 
 func doMap[S, T any](ctx context.Context, in <-chan S, f func(S) T, result chan<- T) {
@@ -116,10 +89,10 @@ func doMap[S, T any](ctx context.Context, in <-chan S, f func(S) T, result chan<
 
 // MapCtx applies f to every value received from its input channel and sends the result to its output channel.
 // The same context passed to MapCtx is passed as an argument to f.
-func MapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) T, opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doMapCtx(ctx, in, f, out)
-	})
+func MapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) T, opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doMapCtx(ctx, in, f, out[0])
+	}, configure(opts)))
 }
 
 func doMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) T, result chan<- T) {
@@ -142,10 +115,10 @@ func doMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context
 
 // FlatMap applies f to every value received from its input channel and sends all values found in the slice returned from
 // f to its output channel.
-func FlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T, opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doFlatMap(ctx, in, f, out)
-	})
+func FlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T, opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doFlatMap(ctx, in, f, out[0])
+	}, configure(opts)))
 }
 
 func doFlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T, out chan<- T) {
@@ -165,10 +138,10 @@ func doFlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T, out ch
 // FlatMapCtx applies f to every value received from its input channel and sends all values found in the slice returned from
 // f to its output channel.
 // The same context passed to FlatMapCtx is passed as an argument to f.
-func FlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) []T, opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doFlatMapCtx(ctx, in, f, out)
-	})
+func FlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) []T, opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doFlatMapCtx(ctx, in, f, out[0])
+	}, configure(opts)))
 }
 
 func doFlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) []T, out chan<- T) {
@@ -186,10 +159,10 @@ func doFlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Con
 }
 
 // Combine sends all values received from both of its input channels to its output channel.
-func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doCombine(ctx, t1, t2, out)
-	})
+func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doCombine(ctx, t1, t2, out[0])
+	}, configure(opts)))
 }
 
 func doCombine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, out chan<- T) {
@@ -218,14 +191,12 @@ func doCombine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, out chan<- 
 
 // Tee sends all values received from the input channel into 2 output channels. Both output channels must be
 // drained simultaneously to avoid blocking this pipeline stage.
-func Tee[T any](ctx context.Context, ch <-chan T, opts ...OptionFunc[T]) (<-chan T, <-chan T) {
+func Tee[T any](ctx context.Context, ch <-chan T, opts ...Option) (<-chan T, <-chan T) {
 	conf := configure(opts)
-	chan1, chan2 := conf.channer(), conf.channer()
-	doOnPool(ctx, conf.workers, func(ctx context.Context, chans ...chan<- T) {
-		out1, out2 := chans[0], chans[1]
-		doTee(ctx, ch, out1, out2)
-	}, chan1, chan2)
-	return chan1, chan2
+	conf.outputs = 2
+	return return2(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doTee(ctx, ch, out[0], out[1])
+	}, conf))
 }
 
 func doTee[T any](ctx context.Context, ch <-chan T, chan1, chan2 chan<- T) {
@@ -259,10 +230,10 @@ func doTee[T any](ctx context.Context, ch <-chan T, chan1, chan2 chan<- T) {
 
 // WithCancel passes each value received from its input channel to its output channel.
 // If the provided context is cancelled or the input channel is closed, the output channel is also closed.
-func WithCancel[T any](ctx context.Context, ch <-chan T, opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doWithCancel(ctx, ch, out)
-	})
+func WithCancel[T any](ctx context.Context, ch <-chan T, opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doWithCancel(ctx, ch, out[0])
+	}, configure(opts)))
 }
 
 func doWithCancel[T any](ctx context.Context, ch <-chan T, out chan<- T) {
@@ -284,10 +255,10 @@ func doWithCancel[T any](ctx context.Context, ch <-chan T, out chan<- T) {
 }
 
 // OptionMap applies f to every value received from in and sends all non-nil results to its output channel.
-func OptionMap[S, T any](ctx context.Context, in <-chan S, f func(S) *T, opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doOptionMap(ctx, in, out, f)
-	})
+func OptionMap[S, T any](ctx context.Context, in <-chan S, f func(S) *T, opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doOptionMap(ctx, in, out[0], f)
+	}, configure(opts)))
 }
 
 func doOptionMap[S, T any](ctx context.Context, in <-chan S, out chan<- T, f func(S) *T) {
@@ -314,10 +285,10 @@ func doOptionMap[S, T any](ctx context.Context, in <-chan S, out chan<- T, f fun
 
 // OptionMapCtx applies f to every value received from in and sends all non-nil results to its output channel.
 // The same context passed to OptionMapCtx is passed as an argument to f.
-func OptionMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) *T, opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doOptionMapCtx(ctx, in, out, f)
-	})
+func OptionMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) *T, opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doOptionMapCtx(ctx, in, out[0], f)
+	}, configure(opts)))
 }
 
 func doOptionMapCtx[S, T any](ctx context.Context, in <-chan S, out chan<- T, f func(context.Context, S) *T) {
@@ -355,7 +326,7 @@ func sendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
 }
 
 // ForkMapCtx forks an invocation of f onto a new goroutine for each value received from in.
-// f is passed the output channel directly, and is expected responsible to send its output to this channel.
+// f is passed the output channel directly, and is responsible for sending its output to this channel.
 // To avoid resource leaks, f must respect context cancellation when sending to its output channel.
 // The same context passed to ForkMapCtx is passed to f.
 //
@@ -364,10 +335,10 @@ func sendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
 // Variants of ForkMapCtx are intentionally omitted from this package.
 // ForkMap is omitted because the caller cannot listen for context cancellation in some cases.
 // ForkFlatMap is omitted because it is more efficient for the caller range over the slice and send individual values themselves.
-func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S, chan<- T), opts ...OptionFunc[T]) <-chan T {
-	return doWithOpts(ctx, opts, func(ctx context.Context, out chan<- T) {
-		doForkMapCtx(ctx, in, f, out)
-	})
+func ForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S, chan<- T), opts ...Option) <-chan T {
+	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
+		doForkMapCtx(ctx, in, f, out[0])
+	}, configure(opts)))
 }
 
 func doForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S, chan<- T), out chan<- T) {
@@ -391,6 +362,134 @@ func doForkMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Con
 	}
 }
 
+// An Option is passed to optionally configure a pipeline stage.
+type Option func(*config)
+
+// WithBuffer configures a pipeline to return a buffered output channel with a buffer of the provided size.s
+func WithBuffer(size int) Option {
+	return func(conf *config) {
+		conf.bufferSize = size
+	}
+}
+
+// WithPool configures a pipeline to run the provided stage on a parallel worker pool of the given size. All workers are
+// kept alive until the input channel is closed or the provided context is cancelled.
+func WithPool(numWorkers int) Option {
+	return func(conf *config) {
+		conf.workers = numWorkers
+	}
+}
+
+// WithDone configures a pipeline stage to cancel the returned context when all goroutines started by the stage
+// have been stopped. This is appropriate for termination detection in a single pipeline stage. To await termination of
+// multiple pipeline stages, use WithWaitGroup.
+func WithDone(ctx context.Context) (Option, context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	return func(conf *config) {
+		conf.doneCancel = cancel
+	}, ctx
+}
+
+// WithWaitGroup configures a pipeline stage to add a value to the provided WaitGroup for each goroutine started by the
+// stage, and signal Done when each goroutine has completed.
+func WithWaitGroup(wg *sync.WaitGroup) Option {
+	return func(conf *config) {
+		conf.wg = wg
+	}
+}
+
+type config struct {
+	bufferSize int
+	workers    int
+	outputs    int
+	doneCancel context.CancelFunc
+	wg         *sync.WaitGroup
+}
+
+func makeOutputChannels[T any](c config) []chan T {
+	var result []chan T
+	for i := 0; i < c.outputs; i++ {
+		result = append(result, make(chan T, c.bufferSize))
+	}
+	return result
+}
+
+// add1 calls Add(1) on the WaitGroup, if one has been configured.
+func (c *config) add1() {
+	if c.wg != nil {
+		c.wg.Add(1)
+	}
+}
+
+// done calls Done() on the waitgroup, if one has been configured
+func (c *config) done() {
+	if c.wg != nil {
+		c.wg.Done()
+	}
+}
+
+// cancel calls doneCancel, if it has been configured
+func (c config) cancel() {
+	if c.doneCancel != nil {
+		c.doneCancel()
+	}
+}
+
+func configure(opts []Option) config {
+	result := config{
+		bufferSize: 0,
+		workers:    1,
+		outputs:    1,
+	}
+	for _, opt := range opts {
+		opt(&result)
+	}
+	return result
+}
+
+// doWithConf runs the implementation provided via doIt on goroutines according to the provided options.
+func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan T), conf config) []chan T {
+	outs := makeOutputChannels[T](conf)
+	if conf.workers == 1 {
+		// run without a worker pool to avoid overhead from the WaitGroup
+		conf.add1()
+		go func() {
+			defer func() {
+				for _, ch := range outs {
+					close(ch)
+				}
+				conf.cancel()
+				conf.done()
+			}()
+			doIt(ctx, outs...)
+		}()
+	} else {
+		// run on worker pool.
+		var poolStopped sync.WaitGroup
+		for i := 0; i < conf.workers; i++ {
+			poolStopped.Add(1)
+			conf.add1()
+			go func(id int) {
+				defer func() {
+					poolStopped.Done()
+					if id == 0 { // first thread closes the output channel.
+						poolStopped.Wait()
+						defer func() {
+							for _, ch := range outs {
+								close(ch)
+							}
+						}()
+						conf.cancel()
+					}
+					conf.done()
+				}()
+				doIt(ctx, outs...)
+			}(i)
+		}
+	}
+	return outs
+}
+
 // Drain receives all values from the provided channel and returns them in a slice.
 // Drain blocks the caller until the input channel is closed or the provided context is cancelled.
 // An error is returned if and only if the provided context was cancelled before the input channel was closed.
@@ -405,63 +504,6 @@ func Drain[T any](ctx context.Context, in <-chan T) ([]T, error) {
 				return result, nil
 			}
 			result = append(result, repo)
-		}
-	}
-}
-
-// doWithOpts runs the implementation provided via doIt on goroutines according to the provided options.
-func doWithOpts[T any](ctx context.Context, opts []OptionFunc[T], doIt func(context.Context, chan<- T)) <-chan T {
-	conf := configure(opts)
-	out := conf.channer()
-	if conf.workers == 1 {
-		go func() {
-			defer close(out)
-			doIt(ctx, out)
-		}()
-	} else {
-		var wg sync.WaitGroup
-		for i := 0; i < conf.workers; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer func() {
-					wg.Done()
-					if id == 0 { // first thread closes the output channel.
-						wg.Wait()
-						close(out)
-					}
-				}()
-				doIt(ctx, out)
-			}(i)
-		}
-	}
-	return out
-}
-
-func doOnPool[T any](ctx context.Context, poolSize int, doIt func(context.Context, ...chan<- T), outs ...chan<- T) {
-	closeAll := func() {
-		for _, ch := range outs {
-			close(ch)
-		}
-	}
-	if poolSize == 1 {
-		go func() {
-			defer closeAll()
-			doIt(ctx, outs...)
-		}()
-	} else {
-		var wg sync.WaitGroup
-		for i := 0; i < poolSize; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer func() {
-					wg.Done()
-					if id == 0 { // first thread closes the output channel.
-						wg.Wait()
-						closeAll()
-					}
-				}()
-				doIt(ctx, outs...)
-			}(i)
 		}
 	}
 }
