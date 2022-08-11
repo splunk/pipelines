@@ -676,3 +676,52 @@ func ExampleForkMapCtx() {
 		fmt.Printf("%s: %d\n", response.Request.URL, response.StatusCode)
 	}
 }
+
+func ExampleErrorSink() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx, errs := pipelines.NewErrorSink(ctx)
+
+	urls := pipelines.Chan([]string{
+		"https://httpstat.us/200",
+		"https://httpstat.us/410",
+		"wrong://not.a.url/test", // malformed URL; triggers a fatal error
+		"https://httpstat.us/502",
+	})
+
+	// fetch a bunch of URLs, reporting errors along the way.
+	responses := pipelines.OptionMapCtx(ctx, urls, func(ctx context.Context, url string) *http.Response {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			errs.Fatal(fmt.Errorf("error forming request context: %w", err))
+		}
+		resp, err := http.DefaultClient.Do(req)
+
+		if err != nil {
+			errs.Error(fmt.Errorf("error fetching %s: %w", url, err))
+			return nil
+		}
+		if resp.StatusCode >= 400 {
+			errs.Error(fmt.Errorf("unsuccessful %s: %d", url, resp.StatusCode))
+			return nil
+		}
+		return resp
+	})
+
+	// retrieve all responses; there should be only one
+	for response := range responses {
+		fmt.Printf("success: %s: %d\n", response.Request.URL, response.StatusCode)
+	}
+
+	// retrieve all errors; the 502 error should be skipped, since the malformed URL triggers
+	// a fatal error.
+	for _, err := range errs.All() {
+		fmt.Printf("error:   %v\n", err.Error())
+	}
+
+	// Output:
+	// success: https://httpstat.us/200: 200
+	// error:   unsuccessful https://httpstat.us/410: 410
+	// error:   error fetching wrong://not.a.url/test: Get "wrong://not.a.url/test": unsupported protocol scheme "wrong"
+}

@@ -3,7 +3,7 @@
 // Generally, pipeline stages have signatures starting with a context and input channel as their first arguments, and
 // returning a channel, as below:
 //
-//   Stage[S,T any](ctx context.Context, in <-chan S, ...) <-chan T
+//	Stage[S,T any](ctx context.Context, in <-chan S, ...) <-chan T
 //
 // The return value from a pipeline stage is referred to as the stage's 'output' channel. Each stage is a non-blocking
 // call which starts one or more goroutines which listen on the input channel and send results to the output channel.
@@ -59,14 +59,6 @@ func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T, opts ...Option
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
 		doMap(ctx, in, f, out[0])
 	}, configure(opts)))
-}
-
-func return1[T any](chans []chan T) <-chan T {
-	return chans[0]
-}
-
-func return2[T any](chans []chan T) (<-chan T, <-chan T) {
-	return chans[0], chans[1]
 }
 
 func doMap[S, T any](ctx context.Context, in <-chan S, f func(S) T, result chan<- T) {
@@ -524,4 +516,70 @@ func Reduce[S, T string](ctx context.Context, in <-chan S, f func(T, S) T) (T, e
 			result = f(result, s)
 		}
 	}
+}
+
+// ErrorSink provides an error-handling solution for pipelines created by this package. It manages a
+// pipeline stage which can receive fatal and non-fatal errors that may occur during the course of a pipeline.
+type ErrorSink struct {
+	errors chan errWrapper
+	cancel context.CancelFunc
+	errs   []error
+}
+
+// NewErrorSink returns a new ErrorSink, along with a context which is cancelled when a fatal error is sent to the
+// ErrorSink. Starts a new, configurable pipeline stage which catches any errors reported.
+func NewErrorSink(ctx context.Context, opts ...Option) (context.Context, *ErrorSink) {
+	ctx, cancel := context.WithCancel(ctx)
+	result := &ErrorSink{cancel: cancel}
+	doWithConf(ctx, func(ctx context.Context, in ...chan errWrapper) {
+		result.doErrSink(ctx, in[0])
+	}, configure(opts))
+	return ctx, result
+}
+
+func (s *ErrorSink) doErrSink(ctx context.Context, errors chan errWrapper) {
+	s.errors = errors
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case werr := <-errors:
+			s.errs = append(s.errs, werr.err)
+			if werr.isFatal {
+				s.cancel()
+			}
+		}
+	}
+}
+
+// Fatal sends a fatal error to this ErrorSink, cancelling the child context which was created by NewErrorSink,
+// as well as reporting this error.
+func (s *ErrorSink) Fatal(err error) {
+	s.errors <- errWrapper{isFatal: true, err: err}
+}
+
+// Error sends a non-fatal error to this ErrorSink, which is reported and included along with All()
+func (s *ErrorSink) Error(err error) {
+	s.errors <- errWrapper{isFatal: false, err: err}
+}
+
+// All returns all errors which have been received by this ErrorSink so far. Subsequent calls to All can return strictly
+// more errors, but will never return fewer errors. The only way to be certain that all errors from a pipeline have been
+// reported is to pass WithWaitGroup to every pipeline stage which sends an error to this ErrorSink and wait for all
+// stages to terminate before calling All().
+func (s *ErrorSink) All() []error {
+	return s.errs
+}
+
+type errWrapper struct {
+	isFatal bool
+	err     error
+}
+
+func return1[T any](chans []chan T) <-chan T {
+	return chans[0]
+}
+
+func return2[T any](chans []chan T) (<-chan T, <-chan T) {
+	return chans[0], chans[1]
 }
