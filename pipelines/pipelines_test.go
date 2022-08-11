@@ -695,6 +695,7 @@ func ExampleErrorSink() {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			errs.Fatal(fmt.Errorf("error forming request context: %w", err))
+			return nil
 		}
 		resp, err := http.DefaultClient.Do(req)
 
