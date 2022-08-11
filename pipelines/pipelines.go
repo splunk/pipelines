@@ -390,12 +390,25 @@ func WithWaitGroup(wg *sync.WaitGroup) Option {
 	}
 }
 
+// WithDeferred configures a pipeline stage so that each goroutine started by this pipeline stage runs toDefer at the
+// end of its lifecycle. The argument to this function is called after output channels have been closed, but before
+// signaling the sync.WaitGroup that may have been configured with WithWaitGroup or cancelling the context returned from
+// WithDone, if any.
+//
+// A possible use of WithDeferred is to recover from a panicking goroutine.
+func WithDeferred(toDefer func()) Option {
+	return func(conf *config) {
+		conf.deferMe = toDefer
+	}
+}
+
 type config struct {
 	bufferSize int
 	workers    int
 	outputs    int
 	doneCancel context.CancelFunc
 	wg         *sync.WaitGroup
+	deferMe    func()
 }
 
 func makeOutputChannels[T any](c config) []chan T {
@@ -427,6 +440,13 @@ func (c config) cancel() {
 	}
 }
 
+// runDeferred calls deferMe, if it has been configured.
+func (c config) runDeferred() {
+	if c.deferMe != nil {
+		c.deferMe()
+	}
+}
+
 func configure(opts []Option) config {
 	result := config{
 		bufferSize: 0,
@@ -450,6 +470,7 @@ func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan T
 				for _, ch := range outs {
 					close(ch)
 				}
+				conf.runDeferred()
 				conf.cancel()
 				conf.done()
 			}()
@@ -464,14 +485,15 @@ func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan T
 			go func(id int) {
 				defer func() {
 					poolStopped.Done()
-					if id == 0 { // first thread closes the output channel.
+					if id == 0 { // first thread closes the output channels.
 						poolStopped.Wait()
-						defer func() {
-							for _, ch := range outs {
-								close(ch)
-							}
-						}()
+						for _, ch := range outs {
+							close(ch)
+						}
+						conf.runDeferred()
 						conf.cancel()
+					} else {
+						conf.runDeferred()
 					}
 					conf.done()
 				}()
