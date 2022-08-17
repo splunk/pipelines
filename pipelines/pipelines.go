@@ -521,9 +521,11 @@ func Reduce[S, T string](ctx context.Context, in <-chan S, f func(T, S) T) (T, e
 // ErrorSink provides an error-handling solution for pipelines created by this package. It manages a
 // pipeline stage which can receive fatal and non-fatal errors that may occur during the course of a pipeline.
 type ErrorSink struct {
-	errors chan errWrapper
-	cancel context.CancelFunc
-	errs   []error
+	errors   chan errWrapper
+	cancel   context.CancelFunc
+	errs     []error
+	needLock bool
+	lock     *sync.Mutex
 }
 
 // NewErrorSink returns a new ErrorSink, along with a context which is cancelled when a fatal error is sent to the
@@ -531,9 +533,14 @@ type ErrorSink struct {
 func NewErrorSink(ctx context.Context, opts ...Option) (context.Context, *ErrorSink) {
 	ctx, cancel := context.WithCancel(ctx)
 	result := &ErrorSink{cancel: cancel}
+	config := configure(opts)
+	if config.workers > 1 {
+		result.needLock = true
+		result.lock = new(sync.Mutex)
+	}
 	doWithConf(ctx, func(ctx context.Context, in ...chan errWrapper) {
 		result.doErrSink(ctx, in[0])
-	}, configure(opts))
+	}, config)
 	return ctx, result
 }
 
@@ -544,12 +551,20 @@ func (s *ErrorSink) doErrSink(ctx context.Context, errors chan errWrapper) {
 		case <-ctx.Done():
 			return
 		case werr := <-errors:
-			s.errs = append(s.errs, werr.err)
+			s.appendErr(werr.err)
 			if werr.isFatal {
 				s.cancel()
 			}
 		}
 	}
+}
+
+func (s *ErrorSink) appendErr(err error) {
+	if s.needLock {
+		s.lock.Lock()
+		defer s.lock.Unlock()
+	}
+	s.errs = append(s.errs, err)
 }
 
 // Fatal sends a fatal error to this ErrorSink, cancelling the child context which was created by NewErrorSink,
