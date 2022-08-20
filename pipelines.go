@@ -488,7 +488,7 @@ func Drain[T any](ctx context.Context, in <-chan T) ([]T, error) {
 // Reduce runs a reducer function on every input received from the in chan and returns the output. Reduce blocks the
 // caller until the input channel is closed or the provided context is cancelled.
 // An error is returned if and only if the provided context was cancelled before the input channel was closed.
-func Reduce[S, T string](ctx context.Context, in <-chan S, f func(T, S) T) (T, error) {
+func Reduce[S, T any](ctx context.Context, in <-chan S, f func(T, S) T) (T, error) {
 	var result T
 	for {
 		select {
