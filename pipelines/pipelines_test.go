@@ -408,39 +408,6 @@ func TestChan(t *testing.T) {
 	})
 }
 
-func TestWithCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	t.Parallel()
-	t.Run("result channel closes on context done", func(t *testing.T) {
-		withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
-			in := make(chan int)
-			ctx, cancel := context.WithCancel(ctx)
-			cancel()
-			ch := pipelines.WithCancel(ctx, in, opts...)
-
-			testClosesAfterDrain(t, ch)
-		})
-	})
-	t.Run("forwards all values", func(t *testing.T) {
-		is := is.New(t)
-
-		in := pipelines.Chan([]string{"1", "2", "3", "4", "5"})
-		ch := pipelines.WithCancel(ctx, in)
-
-		result := drain(t, ch)
-		is.Equal(result, []string{"1", "2", "3", "4", "5"})
-	})
-	t.Run("result channel closes on closed input channel", func(t *testing.T) {
-		in := make(chan int)
-		close(in)
-		ch := pipelines.WithCancel(ctx, in)
-
-		testClosesAfterDrain(t, ch)
-	})
-}
-
 func TestDrain(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -675,4 +642,28 @@ func ExampleForkMapCtx() {
 	for response := range responses {
 		fmt.Printf("%s: %d\n", response.Request.URL, response.StatusCode)
 	}
+}
+
+func ExampleWithWaitGroup() {
+	ctx := context.Background()
+
+	incAndPrint := func(x int) int {
+		x = x + 1
+		fmt.Printf("%d ", x)
+		return x
+	}
+	ints := pipelines.Chan([]int{1, 2, 3, 4, 5, 6})
+
+	// WithWaitGroup
+	var wg sync.WaitGroup
+	out := pipelines.Map(ctx, ints, incAndPrint, pipelines.WithWaitGroup(&wg))
+	pipelines.Drain(ctx, out)
+
+	wg.Wait() // wait for the pipeline to complete before continuing.
+
+	// Output: 2 3 4 5 6 7
+}
+
+func ExampleWithDone() {
+
 }
