@@ -20,8 +20,8 @@ import (
 	"sync"
 )
 
-// Chan converts a slice of type T to a buffered channel containing the same values. Unlike other funcs in this package,
-// Chan does not start any new goroutines.
+// Chan converts a slice to a channel. The channel returned is a closed, buffered channel containing exactly the same
+// values. Unlike other funcs in this package, Chan does not start any new goroutines.
 func Chan[T any](in []T) <-chan T {
 	result := make(chan T, len(in))
 	defer close(result) // non-empty buffered channels can be drained even when closed.
@@ -31,8 +31,8 @@ func Chan[T any](in []T) <-chan T {
 	return result
 }
 
-// Flatten provides a pipeline stage which converts a channel of slices to a channel of scalar values.
-// Each value contained in slices received from the input channel is sent to the output channel.
+// Flatten starts a pipeline stage which converts a "chan []T" to a "chan T". It provides a pipeline stage which converts a channel of slices to a
+// channel of scalar values. Each value contained in slices received from the input channel is sent to the output channel.
 func Flatten[T any](ctx context.Context, in <-chan []T, opts ...Option) <-chan T {
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
 		doFlatten(ctx, in, out[0])
@@ -53,8 +53,9 @@ func doFlatten[T any](ctx context.Context, in <-chan []T, result chan<- T) {
 	}
 }
 
-// Map applies f to every value received from the input channel and sends the result to the output channel.
-// The output channel is closed when the input channel is closed or the provided context is cancelled.
+// Map starts a pipeline stage which converts a "chan S" to a "chan T", by converting each S to exactly one T. It
+// applies f to every value received from the input channel and sends the result to the output channel. The output
+// channel is closed whenever the input channel is closed or the provided context is cancelled.
 func Map[S, T any](ctx context.Context, in <-chan S, f func(S) T, opts ...Option) <-chan T {
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
 		doMap(ctx, in, f, out[0])
@@ -79,8 +80,10 @@ func doMap[S, T any](ctx context.Context, in <-chan S, f func(S) T, result chan<
 	}
 }
 
-// MapCtx applies f to every value received from its input channel and sends the result to its output channel.
-// The same context passed to MapCtx is passed as an argument to f.
+// MapCtx starts a pipeline stage which converts a "chan S" to "chan T",  by converting each S to exactly one T.
+// Unlike Map, the function which performs the conversion also accepts a context.Context.
+// Map applies f to every value received from its input channel and sends the result to its output channel.
+// The context passed to MapCtx is passed as an argument to f, unchanged.
 func MapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) T, opts ...Option) <-chan T {
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
 		doMapCtx(ctx, in, f, out[0])
@@ -105,8 +108,9 @@ func doMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context
 	}
 }
 
-// FlatMap applies f to every value received from its input channel and sends all values found in the slice returned from
-// f to its output channel.
+// FlatMap starts a pipeline stage which converts a "chan S" to a "chan T", by converting each S to zero or more Ts.
+// It applies f to every value received from its input channel and sends all values found in the
+// slice returned from f to its output channel.
 func FlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T, opts ...Option) <-chan T {
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
 		doFlatMap(ctx, in, f, out[0])
@@ -127,9 +131,11 @@ func doFlatMap[S, T any](ctx context.Context, in <-chan S, f func(S) []T, out ch
 	}
 }
 
-// FlatMapCtx applies f to every value received from its input channel and sends all values found in the slice returned from
+// FlatMapCtx starts a pipeline stage which converts a "chan S" to a "chan T", by converting each S to zero or more Ts.
+// It applies f to every value received from its input channel and sends all values found in the slice returned from
 // f to its output channel.
-// The same context passed to FlatMapCtx is passed as an argument to f.
+//
+//	The context passed to FlatMapCtx is passed as an argument to f, unchanged.
 func FlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) []T, opts ...Option) <-chan T {
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
 		doFlatMapCtx(ctx, in, f, out[0])
@@ -150,7 +156,8 @@ func doFlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Con
 	}
 }
 
-// Combine sends all values received from both of its input channels to its output channel.
+// Combine converts two "chan T" into a single "chan T". It  into sends all values received from both of its input
+// channels to its output channel.
 func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, opts ...Option) <-chan T {
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
 		doCombine(ctx, t1, t2, out[0])
@@ -181,8 +188,9 @@ func doCombine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, out chan<- 
 	}
 }
 
-// Tee sends all values received from the input channel into 2 output channels. Both output channels must be
-// drained simultaneously to avoid blocking this pipeline stage.
+// Tee converts a "chan T" into two "chan T", each of which receive exactly the same values, possibly in different
+// orders.
+// Both output channels must be drained concurrently to avoid blocking this pipeline stage.
 func Tee[T any](ctx context.Context, ch <-chan T, opts ...Option) (<-chan T, <-chan T) {
 	conf := configure(opts)
 	conf.outputs = 2
@@ -216,32 +224,6 @@ func doTee[T any](ctx context.Context, ch <-chan T, chan1, chan2 chan<- T) {
 			}
 		case <-ctx.Done():
 			return
-		}
-	}
-}
-
-// WithCancel passes each value received from its input channel to its output channel.
-// If the provided context is cancelled or the input channel is closed, the output channel is also closed.
-func WithCancel[T any](ctx context.Context, ch <-chan T, opts ...Option) <-chan T {
-	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
-		doWithCancel(ctx, ch, out[0])
-	}, configure(opts)))
-}
-
-func doWithCancel[T any](ctx context.Context, ch <-chan T, out chan<- T) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case t, ok := <-ch:
-			if !ok {
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case out <- t:
-			}
 		}
 	}
 }
@@ -317,8 +299,9 @@ func sendAll[T any](ctx context.Context, ts []T, ch chan<- T) {
 	}
 }
 
-// ForkMapCtx forks an invocation of f onto a new goroutine for each value received from in.
-// f is passed the output channel directly, and is responsible for sending its output to this channel.
+// ForkMapCtx converts a "chan S" into a "chan T" by converting each S into zero or more Ts. Unlike FlatMap or FlatMapCtx,
+// this func starts a new goroutine for converting each value of S.
+// Each goroutine is responsible for sending its output to this channel.
 // To avoid resource leaks, f must respect context cancellation when sending to its output channel.
 // The same context passed to ForkMapCtx is passed to f.
 //
@@ -385,6 +368,7 @@ func WithDone(ctx context.Context) (Option, context.Context) {
 // WithWaitGroup configures a pipeline stage to add a value to the provided WaitGroup for each goroutine started by the
 // stage, and signal Done when each goroutine has completed.
 func WithWaitGroup(wg *sync.WaitGroup) Option {
+	wg.Add(1) // add 1 for the root goroutine which this pipeline stage will start.
 	return func(conf *config) {
 		conf.wg = wg
 	}
@@ -444,7 +428,6 @@ func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan T
 	outs := makeOutputChannels[T](conf)
 	if conf.workers == 1 {
 		// run without a worker pool to avoid overhead from the WaitGroup
-		conf.add1()
 		go func() {
 			defer func() {
 				for _, ch := range outs {
@@ -460,7 +443,9 @@ func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan T
 		var poolStopped sync.WaitGroup
 		for i := 0; i < conf.workers; i++ {
 			poolStopped.Add(1)
-			conf.add1()
+			if i != 0 {
+				conf.add1() // added 1 for the root goroutine when WithWaitGroup was called.
+			}
 			go func(id int) {
 				defer func() {
 					poolStopped.Done()
