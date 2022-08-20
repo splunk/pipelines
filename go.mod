@@ -1,4 +1,4 @@
-module github.com/splunk/go-genlib
+module github.com/splunk/pipelines
 
 go 1.18
 

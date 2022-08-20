@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/matryer/is"
-	"github.com/splunk/go-genlib/pipelines"
+	"github.com/splunk/pipelines"
 	"net/http"
 	"sort"
 	"strconv"
