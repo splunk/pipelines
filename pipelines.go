@@ -156,7 +156,7 @@ func doFlatMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Con
 	}
 }
 
-// Combine converts two "chan T" into a single "chan T". It  into sends all values received from both of its input
+// Combine converts two "chan T" into a single "chan T". It sends all values received from both of its input
 // channels to its output channel.
 func Combine[T any](ctx context.Context, t1 <-chan T, t2 <-chan T, opts ...Option) <-chan T {
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
@@ -228,7 +228,8 @@ func doTee[T any](ctx context.Context, ch <-chan T, chan1, chan2 chan<- T) {
 	}
 }
 
-// OptionMap applies f to every value received from in and sends all non-nil results to its output channel.
+// OptionMap converts a "chan S" to a "chan T" by converting each "S" to zero or one "T"s.
+// It applies f to every value received from in and sends any non-nil results to its output channel.
 func OptionMap[S, T any](ctx context.Context, in <-chan S, f func(S) *T, opts ...Option) <-chan T {
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
 		doOptionMap(ctx, in, out[0], f)
@@ -257,8 +258,9 @@ func doOptionMap[S, T any](ctx context.Context, in <-chan S, out chan<- T, f fun
 	}
 }
 
-// OptionMapCtx applies f to every value received from in and sends all non-nil results to its output channel.
-// The same context passed to OptionMapCtx is passed as an argument to f.
+// OptionMapCtx converts a "chan S" to a "chan T" by converting each "S" to zero or one "T"s. It applies f to every
+// value received from in and sends all non-nil results to its output channel. The same context passed to OptionMapCtx
+// is passed as an argument to f.
 func OptionMapCtx[S, T any](ctx context.Context, in <-chan S, f func(context.Context, S) *T, opts ...Option) <-chan T {
 	return return1(doWithConf(ctx, func(ctx context.Context, out ...chan T) {
 		doOptionMapCtx(ctx, in, out[0], f)
@@ -356,8 +358,9 @@ func WithPool(numWorkers int) Option {
 }
 
 // WithDone configures a pipeline stage to cancel the returned context when all goroutines started by the stage
-// have been stopped. This is appropriate for termination detection in a single pipeline stage. To await termination of
-// multiple pipeline stages, use WithWaitGroup.
+// have been stopped.
+// This is appropriate for termination detection for ANY stages in a pipeline.
+// To await termination of ALL stages in a pipeline, use WithWaitGroup.
 func WithDone(ctx context.Context) (Option, context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	return func(conf *config) {
@@ -366,7 +369,8 @@ func WithDone(ctx context.Context) (Option, context.Context) {
 }
 
 // WithWaitGroup configures a pipeline stage to add a value to the provided WaitGroup for each goroutine started by the
-// stage, and signal Done when each goroutine has completed.
+// stage, and signal Done when each goroutine has completed. This option is appropriate for termination detection of
+// ALL stages in a pipeline. To detect termination of ANY stage in a pipeline, use WithDone.
 func WithWaitGroup(wg *sync.WaitGroup) Option {
 	wg.Add(1) // add 1 for the root goroutine which this pipeline stage will start.
 	return func(conf *config) {

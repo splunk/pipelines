@@ -99,8 +99,8 @@ A few options are provided for listening to when a pipeline has halted.
 A sink serves as the last stage of a processing pipeline. All sinks are implemented as blocking calls which don't
 start any new goroutines.
 
-* `Drain` converts a `chan T` to a `[]T`.
-* `Reduce` converts a `chan S` to a `T`, by combining multiple values of `S` into one value of `T`.
+* `Drain`: converts a `chan T` to a `[]T`.
+* `Reduce`: converts a `chan S` to a `T`, by combining multiple values of `S` into one value of `T`.
 
 The following helpers are included to make conversion from standard to channels simpler.
 
