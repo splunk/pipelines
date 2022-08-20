@@ -3,7 +3,7 @@
 // Generally, pipeline stages have signatures starting with a context and input channel as their first arguments, and
 // returning a channel, as below:
 //
-//   Stage[S,T any](ctx context.Context, in <-chan S, ...) <-chan T
+//	Stage[S,T any](ctx context.Context, in <-chan S, ...) <-chan T
 //
 // The return value from a pipeline stage is referred to as the stage's 'output' channel. Each stage is a non-blocking
 // call which starts one or more goroutines which listen on the input channel and send results to the output channel.
