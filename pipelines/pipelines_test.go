@@ -657,7 +657,10 @@ func ExampleWithWaitGroup() {
 	// WithWaitGroup
 	var wg sync.WaitGroup
 	out := pipelines.Map(ctx, ints, incAndPrint, pipelines.WithWaitGroup(&wg))
-	pipelines.Drain(ctx, out)
+	_, err := pipelines.Drain(ctx, out)
+	if err != nil {
+		fmt.Println("could not drain!")
+	}
 
 	wg.Wait() // wait for the Map stage to complete before continuing.
 
@@ -674,11 +677,14 @@ func ExampleWithDone() {
 	}
 	ints := pipelines.Chan([]int{2, 4, 6, 8, 10})
 
-	opt, ctx := pipelines.WithDone(ctx)
+	opt, done := pipelines.WithDone(ctx)
 	out := pipelines.Map(ctx, ints, doubleAndPrint, opt)
-	pipelines.Drain(ctx, out)
+	_, err := pipelines.Drain(ctx, out)
+	if err != nil {
+		fmt.Println("could not drain!")
+	}
 
-	<-ctx.Done() // wait for the Map stage to complete before continuing.
+	<-done.Done() // wait for the Map stage to complete before continuing.
 
 	// Output: 4 8 12 16 20
 }
