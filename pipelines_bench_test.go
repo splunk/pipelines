@@ -22,9 +22,9 @@ var benchMatrix = []Test{
 }
 
 type Test struct {
-	Load   int
-	Pool   int
-	Buffer int
+	Load   int // number of items processed by stage
+	Pool   int // number of goroutines running the stage
+	Buffer int // size of buffer for output channel.
 }
 
 func (t Test) Name(b *testing.B) string {
