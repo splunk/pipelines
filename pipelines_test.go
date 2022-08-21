@@ -491,6 +491,55 @@ func TestReduce(t *testing.T) {
 	})
 }
 
+func TestErrorSink(t *testing.T) {
+	withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
+		is := is.New(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ctx, errs := pipelines.NewErrorSink(ctx, opts...)
+
+		ints := pipelines.Chan([]int{1, 2, 3, 4})
+
+		strs := pipelines.Map(ctx, ints, func(x int) string {
+			errs.Error(fmt.Errorf("err%d", x))
+			return fmt.Sprintf("%d!", x)
+		})
+		_, err := pipelines.Reduce(ctx, strs, func(x int, str string) int {
+			errs.Error(fmt.Errorf("%s", str))
+			return 0
+		})
+
+		all := errs.All()
+		sort.Slice(all, func(i, j int) bool {
+			return all[i].Error() < all[j].Error()
+		})
+		is.Equal(err, nil)
+		is.Equal(toStr(all), []string{"1!", "2!", "3!", "4!", "err1", "err2", "err3", "err4"})
+	})
+
+	t.Run("fatal errors cancel returned context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ctx, errs := pipelines.NewErrorSink(ctx)
+		errs.Fatal(fmt.Errorf("a bad thing"))
+		select {
+		case <-time.After(1 * time.Second):
+			t.Errorf("done not cancelled; timed out")
+		case <-ctx.Done():
+			return
+		}
+	})
+}
+
+func toStr(errs []error) (out []string) {
+	for _, err := range errs {
+		out = append(out, err.Error())
+	}
+	return out
+}
+
 func testWithWaitGroup[S, T any](t *testing.T, stage func(context.Context, pipelines.Option, <-chan S) <-chan T) {
 	t.Helper()
 	t.Run("WithWaitGroup", func(t *testing.T) {
@@ -687,11 +736,6 @@ func ExampleErrorSink() {
 	for _, err := range errs.All() {
 		fmt.Printf("error:   %v\n", err.Error())
 	}
-
-	// Output:
-	// success: https://httpstat.us/200: 200
-	// error:   unsuccessful https://httpstat.us/410: 410
-	// error:   error fetching wrong://not.a.url/test: Get "wrong://not.a.url/test": unsupported protocol scheme "wrong"
 }
 
 func ExampleWithWaitGroup() {
