@@ -17,6 +17,7 @@ package pipelines
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -497,6 +498,7 @@ func Reduce[S, T any](ctx context.Context, in <-chan S, f func(T, S) T) (T, erro
 	for {
 		select {
 		case <-ctx.Done():
+			fmt.Println("reduce closed")
 			return result, ctx.Err()
 		case s, ok := <-in:
 			if !ok {
@@ -515,32 +517,36 @@ type ErrorSink struct {
 	errs     []error
 	needLock bool
 	lock     *sync.Mutex
+	wg       *sync.WaitGroup
 }
 
 // NewErrorSink returns a new ErrorSink, along with a context which is cancelled when a fatal error is sent to the
 // ErrorSink. Starts a new, configurable pipeline stage which catches any errors reported.
 func NewErrorSink(ctx context.Context, opts ...Option) (context.Context, *ErrorSink) {
 	ctx, cancel := context.WithCancel(ctx)
-	result := &ErrorSink{cancel: cancel}
+	result := &ErrorSink{cancel: cancel, wg: &sync.WaitGroup{}}
 	config := configure(opts)
 	if config.workers > 1 {
 		result.needLock = true
-		result.lock = new(sync.Mutex)
+		result.lock = &sync.Mutex{}
 	}
-	doWithConf(ctx, func(ctx context.Context, in ...chan errWrapper) {
+
+	outs := doWithConf(ctx, func(ctx context.Context, in ...chan errWrapper) {
 		result.doErrSink(ctx, in[0])
 	}, config)
+	result.errors = outs[0]
+
 	return ctx, result
 }
 
 func (s *ErrorSink) doErrSink(ctx context.Context, errors chan errWrapper) {
-	s.errors = errors
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case werr := <-errors:
 			s.appendErr(werr.err)
+			s.wg.Done()
 			if werr.isFatal {
 				s.cancel()
 			}
@@ -559,11 +565,13 @@ func (s *ErrorSink) appendErr(err error) {
 // Fatal sends a fatal error to this ErrorSink, cancelling the child context which was created by NewErrorSink,
 // as well as reporting this error.
 func (s *ErrorSink) Fatal(err error) {
+	s.wg.Add(1)
 	s.errors <- errWrapper{isFatal: true, err: err}
 }
 
 // Error sends a non-fatal error to this ErrorSink, which is reported and included along with All()
 func (s *ErrorSink) Error(err error) {
+	s.wg.Add(1)
 	s.errors <- errWrapper{isFatal: false, err: err}
 }
 
@@ -572,6 +580,7 @@ func (s *ErrorSink) Error(err error) {
 // reported is to pass WithWaitGroup to every pipeline stage which sends an error to this ErrorSink and wait for all
 // stages to terminate before calling All().
 func (s *ErrorSink) All() []error {
+	s.wg.Wait()
 	return s.errs
 }
 
