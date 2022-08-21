@@ -15,7 +15,6 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.18
-        id: go
 
       - name: Checkout
         uses: actions/checkout@v2
@@ -29,6 +28,7 @@ jobs:
         with:
           github-token: ${{ secrets.github_token }}
           path-to-lcov: coverage.lcov
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -37,7 +37,6 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.18
-        id: go
 
       - name: Checkout
         uses: actions/checkout@v2
@@ -48,6 +47,28 @@ jobs:
       - name: Enforce gofmt
         run: gofmt -l . && test -z $(gofmt -l .)
 
-      - name: Enforce go generate
-        run: go generate ./... && if [[ $(git status --porcelain) ]]; then echo "Did not check-in generated files." && exit 1; else exit 0; fi
+  benchmark:
+    name: Performance Regression Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18
 
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Run Benchmarks
+        run: go test -bench | tee output.txt
+      - name: Download previous benchmark data
+        uses: actions/cache@v1
+        with:
+          path: ./cache
+          key: ${{ runner.os }}-benchmark
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'go'
+          output-file-path: output.txt
+          external-data-json-path: ./cache/benchmark-data.json
+          fail-on-alert: true

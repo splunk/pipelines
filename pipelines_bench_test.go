@@ -2,16 +2,12 @@ package pipelines_test
 
 import (
 	"context"
+	"fmt"
 	"github.com/splunk/pipelines"
 	"testing"
 )
 
-// generate benchmark calls based on helpers and benchmark matrices defined in this file.
-//go:generate go run gen/pipelines_bench_gen.go pipelines_bench_test
-
-//bench:matrix matrix1
 var benchMatrix = []Test{
-	{1, 1, 1},
 	{10, 1, 1},
 	{100, 1, 1},
 	{1000, 1, 1},
@@ -24,6 +20,10 @@ type Test struct {
 	Load   int
 	Pool   int
 	Buffer int
+}
+
+func (t Test) Name(b *testing.B) string {
+	return fmt.Sprintf("%s_l%d_p%d_b%d", b.Name(), t.Load, t.Pool, t.Buffer)
 }
 
 func (t Test) Opts() []pipelines.Option {
@@ -57,57 +57,86 @@ func flatInc(x int) []int                         { return []int{x, x + 1} }
 func incCtx(ctx context.Context, x int) int       { return x + 1 } // simple map funcs
 func inc(x int) int                               { return x + 1 }
 
-//bench:func matrix1
-func benchmarkMap(test Test, b *testing.B) {
-	ctx := context.Background()
-	for n := 0; n < b.N; n++ {
-		in := ints(test.Load)
+func BenchmarkMap(b *testing.B) {
+	for _, bench := range benchMatrix {
+		b.Run(bench.Name(b), func(b *testing.B) {
+			ctx := context.Background()
+			for n := 0; n < b.N; n++ {
+				in := ints(bench.Load)
 
-		out := pipelines.Map(ctx, in, inc, test.Opts()...)
-		_, err := pipelines.Reduce(ctx, out, sum) // use reduce to avoid allocations from Drain
-		if err != nil {
-			b.Failed()
-		}
+				out := pipelines.Map(ctx, in, inc, bench.Opts()...)
+				_, err := pipelines.Reduce(ctx, out, sum) // use reduce to avoid allocations from Drain
+				if err != nil {
+					b.Failed()
+				}
+			}
+		})
 	}
 }
 
-//bench:func matrix1
-func benchmarkMapCtx(test Test, b *testing.B) {
-	ctx := context.Background()
-	for n := 0; n < b.N; n++ {
-		in := ints(test.Load)
+func BenchmarkMapCtx(b *testing.B) {
+	for _, bench := range benchMatrix {
+		b.Run(bench.Name(b), func(b *testing.B) {
+			ctx := context.Background()
+			for n := 0; n < b.N; n++ {
+				in := ints(bench.Load)
 
-		out := pipelines.MapCtx(ctx, in, incCtx, test.Opts()...)
-		_, err := pipelines.Reduce(ctx, out, sum)
-		if err != nil {
-			b.Failed()
-		}
+				out := pipelines.MapCtx(ctx, in, incCtx, bench.Opts()...)
+				_, err := pipelines.Reduce(ctx, out, sum)
+				if err != nil {
+					b.Failed()
+				}
+			}
+		})
 	}
 }
 
-//bench:func matrix1
-func benchmarkFlatten(test Test, b *testing.B) {
-	ctx := context.Background()
-	for n := 0; n < b.N; n++ {
-		in := intChunks(test.Load)
+func BenchmarkFlatten(b *testing.B) {
+	for _, bench := range benchMatrix {
+		b.Run(bench.Name(b), func(b *testing.B) {
 
-		out := pipelines.Flatten(ctx, in, test.Opts()...)
-		_, err := pipelines.Reduce(ctx, out, sum)
-		if err != nil {
-			b.Failed()
-		}
+			ctx := context.Background()
+			for n := 0; n < b.N; n++ {
+				in := intChunks(bench.Load)
+
+				out := pipelines.Flatten(ctx, in, bench.Opts()...)
+				_, err := pipelines.Reduce(ctx, out, sum)
+				if err != nil {
+					b.Failed()
+				}
+			}
+		})
 	}
 }
 
-//bench:func matrix1
-func benchmarkFlatMap(test Test, b *testing.B) {
-	ctx := context.Background()
-	for n := 0; n < b.N; n++ {
-		in := ints(test.Load)
-		out := pipelines.FlatMap(ctx, in, flatInc, test.Opts()...)
-		_, err := pipelines.Reduce(ctx, out, sum)
-		if err != nil {
-			b.Failed()
-		}
+func BenchmarkFlatMap(b *testing.B) {
+	for _, bench := range benchMatrix {
+		b.Run(bench.Name(b), func(b *testing.B) {
+			ctx := context.Background()
+			for n := 0; n < b.N; n++ {
+				in := ints(bench.Load)
+				out := pipelines.FlatMap(ctx, in, flatInc, bench.Opts()...)
+				_, err := pipelines.Reduce(ctx, out, sum)
+				if err != nil {
+					b.Failed()
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkFlatMapCtx(b *testing.B) {
+	for _, bench := range benchMatrix {
+		b.Run(bench.Name(b), func(b *testing.B) {
+			ctx := context.Background()
+			for n := 0; n < b.N; n++ {
+				in := ints(bench.Load)
+				out := pipelines.FlatMapCtx(ctx, in, flatIncCtx, bench.Opts()...)
+				_, err := pipelines.Reduce(ctx, out, sum)
+				if err != nil {
+					b.Failed()
+				}
+			}
+		})
 	}
 }
