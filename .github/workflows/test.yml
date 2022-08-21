@@ -59,7 +59,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Run Benchmarks
-        run: go test -bench | tee output.txt
+        run: go test -bench ./... | tee output.txt
       - name: Download previous benchmark data
         uses: actions/cache@v1
         with:
