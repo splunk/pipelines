@@ -212,7 +212,6 @@ func doTee[T any](ctx context.Context, ch <-chan T, chan1, chan2 chan<- T) {
 				case chan2 <- t:
 				case <-ctx.Done():
 					return
-				}
 			case chan2 <- t:
 				select {
 				case chan1 <- t:
