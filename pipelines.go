@@ -555,7 +555,7 @@ func (s *ErrorSink) doErrSink(ctx context.Context, errors chan errWrapper) {
 }
 
 func (s *ErrorSink) appendErr(err error) {
-	if s.needLock {
+	if s.needLock { // a lock is only needed in case the ErrorSink was started with
 		s.lock.Lock()
 		defer s.lock.Unlock()
 	}

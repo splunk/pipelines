@@ -2,6 +2,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/splunk/pipelines)](https://goreportcard.com/report/github.com/splunk/pipelines)
 ![Coveralls](https://img.shields.io/coveralls/github/splunk/pipelines)
 ![GitHub](https://img.shields.io/github/license/splunk/pipelines)
+[![Go Reference](https://pkg.go.dev/badge/github.com/splunk/pipelines.svg)](https://pkg.go.dev/github.com/splunk/pipelines)
 ![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/splunk/pipelines?label=version)
 
 # splunk/pipelines
@@ -105,3 +106,12 @@ start any new goroutines.
 The following helpers are included to make conversion from standard to channels simpler.
 
 * `Chan`: converts any `[]T` to a `chan T`.
+
+### Error Handling
+
+Fatal and non-fatal errors that occur during a pipeline can be reported via an `ErrorSink`.
+To ensure fatal errors shut down pipeline stages, `NewErrorSink` wraps and returns a context which is cancelled
+whenever a fatal error is reported.
+Errors can be reported by calling `ErrorSink.All()`, which reports all errors in flight.
+
+See the [example](https://pkg.go.dev/github.com/splunk/pipelines#ErrorSink) in the documentation for usage.
