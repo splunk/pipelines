@@ -491,6 +491,36 @@ func TestReduce(t *testing.T) {
 	})
 }
 
+func TestWithWaitGroup(t *testing.T) {
+
+	t.Run("multi-stage single call", func(t *testing.T) {
+		ctx := context.Background()
+		var wg sync.WaitGroup
+
+		opt := pipelines.WithWaitGroup(&wg)
+		in := pipelines.Chan([]int{1, 2, 3, 4, 5, 6})
+
+		out1 := pipelines.Map(ctx, in, inc, opt)
+		out2 := pipelines.Map(ctx, out1, inc, opt)
+
+		testClosesAfterDrain(t, out2)
+
+		// validate WaitGroup hits zero
+		complete := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(complete)
+		}()
+
+		select {
+		case <-time.After(1 * time.Second):
+			t.Errorf("done not cancelled: timed out")
+		case <-complete:
+			return
+		}
+	})
+}
+
 func TestErrorSink(t *testing.T) {
 	withOptions(t, opts(), func(t *testing.T, opts []pipelines.Option) {
 		is := is.New(t)

@@ -373,7 +373,6 @@ func WithDone(ctx context.Context) (Option, context.Context) {
 // stage, and signal Done when each goroutine has completed. This option is appropriate for termination detection of
 // ALL stages in a pipeline. To detect termination of ANY stage in a pipeline, use WithDone.
 func WithWaitGroup(wg *sync.WaitGroup) Option {
-	wg.Add(1) // add 1 for the root goroutine which this pipeline stage will start.
 	return func(conf *config) {
 		conf.wg = wg
 	}
@@ -432,6 +431,7 @@ func configure(opts []Option) config {
 func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan T), conf config) []chan T {
 	outs := makeOutputChannels[T](conf)
 	if conf.workers == 1 {
+		conf.add1()
 		// run without a worker pool to avoid overhead from the WaitGroup
 		go func() {
 			defer func() {
@@ -448,9 +448,7 @@ func doWithConf[T any](ctx context.Context, doIt func(context.Context, ...chan T
 		var poolStopped sync.WaitGroup
 		for i := 0; i < conf.workers; i++ {
 			poolStopped.Add(1)
-			if i != 0 {
-				conf.add1() // added 1 for the root goroutine when WithWaitGroup was called.
-			}
+			conf.add1()
 			go func(id int) {
 				defer func() {
 					poolStopped.Done()
