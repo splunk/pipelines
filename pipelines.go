@@ -563,12 +563,22 @@ func (s *ErrorSink) appendErr(err error) {
 // Fatal sends a fatal error to this ErrorSink, cancelling the child context which was created by NewErrorSink,
 // as well as reporting this error.
 func (s *ErrorSink) Fatal(err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.wg.Done()
+		}
+	}()
 	s.wg.Add(1)
 	s.errors <- errWrapper{isFatal: true, err: err}
 }
 
 // Error sends a non-fatal error to this ErrorSink, which is reported and included along with All()
 func (s *ErrorSink) Error(err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.wg.Done()
+		}
+	}()
 	s.wg.Add(1)
 	s.errors <- errWrapper{isFatal: false, err: err}
 }
