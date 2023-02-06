@@ -543,7 +543,7 @@ func TestErrorSink(t *testing.T) {
 
 		all := errs.All()
 		is.Equal(err, nil)
-		rgx := regexp.MustCompile("\\d!|err\\d")
+		rgx := regexp.MustCompile(`\d!|err\d`)
 		for _, err := range all { // not all errors will be reported; every error that does should match
 			is.True(rgx.MatchString(err.Error()))
 		}
