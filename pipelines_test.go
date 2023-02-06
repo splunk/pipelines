@@ -6,6 +6,7 @@ import (
 	"github.com/matryer/is"
 	"github.com/splunk/pipelines"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"sync"
@@ -541,11 +542,11 @@ func TestErrorSink(t *testing.T) {
 		})
 
 		all := errs.All()
-		sort.Slice(all, func(i, j int) bool {
-			return all[i].Error() < all[j].Error()
-		})
 		is.Equal(err, nil)
-		is.Equal(toStr(all), []string{"1!", "2!", "3!", "4!", "err1", "err2", "err3", "err4"})
+		rgx := regexp.MustCompile(`\d!|err\d`)
+		for _, err := range all { // not all errors will be reported; every error that does should match
+			is.True(rgx.MatchString(err.Error()))
+		}
 	})
 
 	t.Run("fatal errors cancel returned context", func(t *testing.T) {
@@ -561,13 +562,6 @@ func TestErrorSink(t *testing.T) {
 			return
 		}
 	})
-}
-
-func toStr(errs []error) (out []string) {
-	for _, err := range errs {
-		out = append(out, err.Error())
-	}
-	return out
 }
 
 func testWithWaitGroup[S, T any](t *testing.T, stage func(context.Context, pipelines.Option, <-chan S) <-chan T) {
@@ -728,6 +722,7 @@ func ExampleErrorSink() {
 	defer cancel()
 
 	ctx, errs := pipelines.NewErrorSink(ctx)
+	defer errs.Close()
 
 	urls := pipelines.Chan([]string{
 		"https://httpstat.us/200",
