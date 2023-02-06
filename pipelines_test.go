@@ -543,9 +543,9 @@ func TestErrorSink(t *testing.T) {
 
 		all := errs.All()
 		is.Equal(err, nil)
+		rgx := regexp.MustCompile("\\d!|err\\d")
 		for _, err := range all { // not all errors will be reported; every error that does should match
-			matches, _ := regexp.MatchString("\\d!|err\\d", err.Error())
-			is.True(matches)
+			is.True(rgx.MatchString(err.Error()))
 		}
 	})
 
@@ -562,13 +562,6 @@ func TestErrorSink(t *testing.T) {
 			return
 		}
 	})
-}
-
-func toStr(errs []error) (out []string) {
-	for _, err := range errs {
-		out = append(out, err.Error())
-	}
-	return out
 }
 
 func testWithWaitGroup[S, T any](t *testing.T, stage func(context.Context, pipelines.Option, <-chan S) <-chan T) {
