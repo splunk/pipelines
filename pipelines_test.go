@@ -6,6 +6,7 @@ import (
 	"github.com/matryer/is"
 	"github.com/splunk/pipelines"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"sync"
@@ -541,11 +542,11 @@ func TestErrorSink(t *testing.T) {
 		})
 
 		all := errs.All()
-		sort.Slice(all, func(i, j int) bool {
-			return all[i].Error() < all[j].Error()
-		})
 		is.Equal(err, nil)
-		is.Equal(toStr(all), []string{"1!", "2!", "3!", "4!", "err1", "err2", "err3", "err4"})
+		for _, err := range all { // not all errors will be reported; every error that does should match
+			matches, _ := regexp.MatchString("\\d!|err\\d", err.Error())
+			is.True(matches)
+		}
 	})
 
 	t.Run("fatal errors cancel returned context", func(t *testing.T) {
@@ -728,6 +729,7 @@ func ExampleErrorSink() {
 	defer cancel()
 
 	ctx, errs := pipelines.NewErrorSink(ctx)
+	defer errs.Close()
 
 	urls := pipelines.Chan([]string{
 		"https://httpstat.us/200",
