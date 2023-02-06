@@ -526,24 +526,19 @@ func Reduce[S, T any](ctx context.Context, in <-chan S, f func(T, S) T) (T, erro
 // resources. ErrorSinks are eventually consistent. Calls to All() return as many errors as have been processed to date.
 // At any point in time, there is no guarantee that all errors sent to ErrorSink have been received.
 type ErrorSink struct {
-	errors   chan errWrapper
-	cancel   context.CancelFunc
-	errs     []error
-	needLock bool
-	lock     *sync.Mutex
+	errors chan errWrapper
+	cancel context.CancelFunc
+	errs   []error
+	lock   *sync.Mutex
 }
 
 // NewErrorSink returns a new ErrorSink, along with a context which is cancelled when a fatal error is sent to the
 // ErrorSink. Starts a new, configurable pipeline stage which catches any errors reported.
 func NewErrorSink(ctx context.Context, opts ...Option) (context.Context, *ErrorSink) {
 	ctx, cancel := context.WithCancel(ctx)
-	result := &ErrorSink{cancel: cancel}
+	result := &ErrorSink{cancel: cancel, lock: &sync.Mutex{}}
 	config := configure(opts)
 	config.doNotClose = true
-	if config.workers > 1 {
-		result.needLock = true
-		result.lock = &sync.Mutex{}
-	}
 
 	outs := doWithConf(ctx, func(ctx context.Context, in ...chan errWrapper) {
 		result.doErrSink(ctx, in[0])
@@ -568,10 +563,8 @@ func (s *ErrorSink) doErrSink(ctx context.Context, errors chan errWrapper) {
 }
 
 func (s *ErrorSink) appendErr(err error) {
-	if s.needLock { // a lock is only needed in case the ErrorSink was started with multiple goroutines.
-		s.lock.Lock()
-		defer s.lock.Unlock()
-	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	s.errs = append(s.errs, err)
 }
 
@@ -596,6 +589,8 @@ func (s *ErrorSink) Close() {
 // more errors, but will never return fewer errors. While all errors sent to an ErrorSink eventually end up being
 // reported, there is no timeframe within which they are all guaranteed to be available.
 func (s *ErrorSink) All() []error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	return s.errs
 }
 
