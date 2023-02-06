@@ -1,4 +1,4 @@
-![GitHub Workflow Status](https://img.shields.io/github/workflow/status/splunk/pipelines/test)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/splunk/pipelines/test.yml?branch=main)
 [![Go Report Card](https://goreportcard.com/badge/github.com/splunk/pipelines)](https://goreportcard.com/report/github.com/splunk/pipelines)
 ![Coveralls](https://img.shields.io/coveralls/github/splunk/pipelines)
 ![GitHub](https://img.shields.io/github/license/splunk/pipelines)
